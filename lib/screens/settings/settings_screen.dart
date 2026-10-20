@@ -1,0 +1,153 @@
+import 'package:flutter/material.dart';
+import '../../l10n/app_localizations.dart';
+import '../../providers/app_state.dart';
+import 'signal_analyzer_screen.dart';
+import '../central/central_controller_screen.dart';
+import 'subsystem_config_screen.dart';
+import 'hardware_config_screen.dart';
+import 'firmware_update_settings_screen.dart';
+
+class SettingsScreen extends StatelessWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
+
+    return Scaffold(
+      appBar: AppBar(title: Text(l.settings)),
+      body: ListView(
+        children: [
+          // _SettingsTile(
+          //   icon: Icons.settings_applications,
+          //   title: l.appSettings,
+          //   subtitle: '${l.lossInWeight} / ${l.filling}',
+          //   onTap: () => Navigator.push(
+          //     context,
+          //     MaterialPageRoute(builder: (_) => const AppSettingsScreen()),
+          //   ),
+          // ),
+
+          // 新增：Digital Output Mapping 入口
+          // _SettingsTile(
+          //   icon: Icons.power,
+          //   title: l.digitalOutputMapping,
+          //   subtitle: l.doBitRouting,
+          //   onTap: () => Navigator.push(
+          //     context,
+          //     MaterialPageRoute(
+          //       builder: (_) => const DigitalOutputSettingsScreen(),
+          //     ),
+          //   ),
+          // ),
+
+          //中央控制器
+          _SettingsTile(
+            icon: Icons.dashboard,
+            title: '中央控制器',
+            subtitle: '多机联动 / 配方管理',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const CentralControllerScreen(),
+              ),
+            ),
+          ),
+
+          // HMI 配置 — 设备发现 / 子系统秤台绑定
+          _SettingsTile(
+            icon: Icons.developer_board,
+            title: l.hmiConfig,
+            subtitle: l.hmiConfigSubtitle,
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const SubsystemConfigScreen()),
+            ),
+          ),
+
+          _SettingsTile(
+            icon: Icons.memory,
+            title: '硬件配置',
+            subtitle: '扫描添加 / 删除硬件 / 别名管理',
+            trailingCount: AppStateProvider.of(context).newHardwareCount,
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const HardwareConfigScreen()),
+            ),
+          ),
+
+          const Divider(),
+          _SettingsTile(
+            icon: Icons.analytics,
+            title: l.signalAnalyzer,
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const SignalAnalyzerScreen()),
+            ),
+          ),
+
+          const Divider(),
+          _SettingsTile(
+            icon: Icons.system_update,
+            title: '版本更新',
+            subtitle: '配置更新服务器 / 检查更新',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const FirmwareUpdateSettingsScreen(),
+              ),
+            ),
+          ),
+          const Divider(),
+          _SettingsTile(
+            icon: Icons.language,
+            title: l.language,
+            subtitle: AppStateProvider.of(context).locale.languageCode == 'zh'
+                ? l.chinese
+                : l.english,
+            onTap: () {
+              final current = AppStateProvider.of(context).locale;
+              final next = current.languageCode == 'zh'
+                  ? const Locale('en')
+                  : const Locale('zh');
+              AppStateProvider.localeChanger(context)(next);
+              AppStateProvider.of(context).setLocale(next);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final int trailingCount;
+  final VoidCallback onTap;
+
+  const _SettingsTile({
+    required this.icon,
+    required this.title,
+    this.subtitle,
+    this.trailingCount = 0,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Icon(icon),
+      title: Text(title),
+      subtitle: subtitle != null ? Text(subtitle!) : null,
+      trailing: trailingCount > 0
+          ? Badge.count(
+              count: trailingCount,
+              child: const Icon(Icons.chevron_right),
+            )
+          : const Icon(Icons.chevron_right),
+      onTap: onTap,
+    );
+  }
+}

@@ -1,0 +1,211 @@
+import 'models/weight_data.dart';
+import 'models/scale_params.dart';
+import 'models/zero_config.dart';
+import 'models/tare_config.dart';
+import 'models/filter_stability_config.dart';
+import 'models/liw_config.dart';
+import 'models/filling_config.dart';
+import 'models/silo_sequence_config.dart';
+import 'models/system_status.dart';
+import 'models/digital_output_map.dart';
+import 'models/digital_input_map.dart';
+import 'models/ethercat_slave_info.dart';
+import 'models/subsystem_mapping_info.dart';
+
+abstract class WeighingPlatform {
+  WeighingPlatform();
+  static WeighingPlatform? _instance;
+  static WeighingPlatform get instance {
+    final current = _instance;
+    if (current == null) {
+      throw StateError('WeighingPlatform.instance 尚未注册。请先调用 registerWebPreviewPlatform()');
+    }
+    return current;
+  }
+  static set instance(WeighingPlatform value) {
+    _instance = value;
+  }
+
+  // System
+  Future<bool> initialize(
+      {String dbPath = '/data/weighing_system.db',
+      String inputConfigPath = '/etc/weighing/input_mode.json'});
+  Future<void> shutdown();
+
+  // Weight stream
+  Stream<WeightData> get weightStream;
+  Stream<Map<String, dynamic>> get statusStream;
+  Stream<Map<String, dynamic>> get calibrationEvents;
+
+  // Scale config
+  Future<bool> updateScaleParams(int scaleId, ScaleParams params);
+  Future<ScaleParams> getScaleParams(int scaleId);
+  Future<bool> updateZeroConfig(int scaleId, ZeroConfig config);
+  Future<ZeroConfig> getZeroConfig(int scaleId);
+  Future<bool> updateTareConfig(int scaleId, TareConfig config);
+  Future<TareConfig> getTareConfig(int scaleId);
+  Future<bool> updateFilterStability(int scaleId, FilterStabilityConfig config);
+  Future<FilterStabilityConfig> getFilterStability(int scaleId);
+
+  // Scale operations
+  Future<bool> doZero(int scaleId);
+  Future<bool> doTare(int scaleId);
+  Future<bool> clearTare(int scaleId);
+  Future<bool> setPresetTare(int scaleId, double value);
+
+  // Calibration
+  Future<bool> triggerCalZero(int scaleId);
+  Future<bool> triggerCalSpan(
+      int scaleId, int linearMode, List<double> testLoads);
+  Future<bool> triggerCalibrationAddLoad(int scaleId);
+  Future<bool> triggerSaveCalibration(int scaleId);
+  Future<bool> triggerAbortCalibration(int scaleId);
+  Future<bool> triggerStepCalibration(int scaleId, double testWeight);
+  Future<bool> acceptDynamicCalibration(int scaleId, bool accept);
+  Future<bool> triggerStepRemoveConfirm(int scaleId) {
+    throw UnimplementedError(
+        'triggerStepRemoveConfirm() has not been implemented.');
+  }
+
+  Future<bool> triggerStepSubstituteConfirm(
+      int scaleId, double substituteWeight) {
+    throw UnimplementedError(
+        'triggerStepSubstituteConfirm() has not been implemented.');
+  }
+
+  // LIW config
+  Future<bool> updateLiwBaseConfig(int subsystemId, LiwBaseConfig config);
+  Future<LiwBaseConfig> getLiwBaseConfig(int subsystemId);
+  Future<bool> updateLiwSystemConfig(int subsystemId, LiwSystemConfig config);
+  Future<LiwSystemConfig> getLiwSystemConfig(int subsystemId);
+  Future<bool> updateLiwSystemIdConfig(
+      int subsystemId, LiwSystemIdConfig config);
+  Future<LiwSystemIdConfig> getLiwSystemIdConfig(int subsystemId);
+  Future<bool> updateLiwControllerConfig(
+      int subsystemId, LiwControllerConfig config);
+  Future<LiwControllerConfig> getLiwControllerConfig(int subsystemId);
+  Future<bool> updateLiwRefillConfig(int subsystemId, LiwRefillConfig config);
+  Future<LiwRefillConfig> getLiwRefillConfig(int subsystemId);
+  Future<bool> updateLiwTargetValuesConfig(
+      int subsystemId, LiwTargetValuesConfig config);
+  Future<LiwTargetValuesConfig> getLiwTargetValuesConfig(int subsystemId);
+  Future<bool> updateLiwToleranceCheckConfig(
+      int subsystemId, LiwToleranceCheckConfig config);
+  Future<LiwToleranceCheckConfig> getLiwToleranceCheckConfig(int subsystemId);
+  Future<bool> updateLiwEmptyingConfig(
+      int subsystemId, LiwEmptyingConfig config);
+  Future<LiwEmptyingConfig> getLiwEmptyingConfig(int subsystemId);
+  Future<bool> updateLiwWarningConfig(int subsystemId, LiwWarningConfig config);
+  Future<LiwWarningConfig> getLiwWarningConfig(int subsystemId);
+  Future<bool> updateLiwFlowMonitorConfig(
+      int subsystemId, LiwFlowMonitorConfig config);
+  Future<LiwFlowMonitorConfig> getLiwFlowMonitorConfig(int subsystemId);
+  Future<bool> updateLiwAdvancedConfig(
+      int subsystemId, LiwAdvancedConfig config);
+  Future<LiwAdvancedConfig> getLiwAdvancedConfig(int subsystemId);
+  Future<bool> updateLiwStatsConfig(int subsystemId, LiwStatsConfig config);
+  Future<LiwStatsConfig> getLiwStatsConfig(int subsystemId);
+
+  // Filling config
+  Future<bool> updateFillingGeneralConfig(
+      int subsystemId, FillingGeneralConfig config);
+  Future<FillingGeneralConfig> getFillingGeneralConfig(int subsystemId);
+  Future<bool> updateFillingSystemConfig(
+      int subsystemId, FillingSystemConfig config);
+  Future<FillingSystemConfig> getFillingSystemConfig(int subsystemId);
+  Future<bool> updateFillingTargetConfig(
+      int subsystemId, FillingTargetConfig config);
+  Future<FillingTargetConfig> getFillingTargetConfig(int subsystemId);
+  Future<bool> updateFillingAutoTareConfig(
+      int subsystemId, FillingAutoTareConfig config);
+  Future<FillingAutoTareConfig> getFillingAutoTareConfig(int subsystemId);
+  Future<bool> updateFillingToleranceConfig(
+      int subsystemId, FillingToleranceConfig config);
+  Future<FillingToleranceConfig> getFillingToleranceConfig(int subsystemId);
+  Future<bool> updateFillingSpillOptConfig(
+      int subsystemId, FillingSpillOptConfig config);
+  Future<FillingSpillOptConfig> getFillingSpillOptConfig(int subsystemId);
+  Future<bool> updateFillingCutoffOptConfig(
+      int subsystemId, FillingCutoffOptConfig config);
+  Future<FillingCutoffOptConfig> getFillingCutoffOptConfig(int subsystemId);
+  Future<bool> updateFillingJogConfig(int subsystemId, FillingJogConfig config);
+  Future<FillingJogConfig> getFillingJogConfig(int subsystemId);
+  Future<bool> updateFillingRefillConfig(
+      int subsystemId, FillingRefillConfig config);
+  Future<FillingRefillConfig> getFillingRefillConfig(int subsystemId);
+  Future<bool> updateFillingEmptyingConfig(
+      int subsystemId, FillingEmptyingConfig config);
+  Future<FillingEmptyingConfig> getFillingEmptyingConfig(int subsystemId);
+  Future<bool> updateFillingEventsConfig(
+      int subsystemId, FillingEventsConfig config);
+  Future<FillingEventsConfig> getFillingEventsConfig(int subsystemId);
+  Future<bool> updateFillingAdvancedConfig(
+      int subsystemId, FillingAdvancedConfig config);
+  Future<FillingAdvancedConfig> getFillingAdvancedConfig(int subsystemId);
+  Future<bool> setFillingSiloSequenceConfig(
+      int subsystemId, SiloSequenceConfig config);
+  Future<SiloSequenceConfig> getFillingSiloSequenceConfig(int subsystemId);
+  Future<bool> loadFillingSiloProcessConfig(int subsystemId, int siloIndex);
+  Future<bool> saveFillingSiloProcessConfig(
+      int subsystemId, int siloIndex, Map<String, dynamic> config);
+  Future<List<int>> getFillingSiloProcessIndices(int subsystemId);
+
+  // Digital output mapping
+  Future<bool> updateDigitalOutputMap(DigitalOutputMapConfig config);
+  Future<DigitalOutputMapConfig> getDigitalOutputMap();
+  Future<Map<String, dynamic>> validateDigitalOutputMap(
+      DigitalOutputMapConfig config);
+
+  // Digital input mapping
+  Future<bool> updateDigitalInputMap(DigitalInputMapConfig config);
+  Future<DigitalInputMapConfig> getDigitalInputMap();
+  Future<Map<String, dynamic>> validateDigitalInputMap(
+      DigitalInputMapConfig config);
+
+  // App control
+  Future<bool> startApp(int subsystemId);
+  Future<bool> stopApp(int subsystemId);
+  Future<bool> setManualControlRate(
+      int subsystemId, int signalType, double ratePct);
+  Future<AppStatusData> getAppStatus(int subsystemId);
+
+  // CentralController API
+  Future<bool> loadRecipe(int recipeId);
+  Future<bool> saveRecipe(Map<String, dynamic> recipe);
+  Future<List<Map<String, dynamic>>> getAllRecipes();
+  Future<bool> deleteRecipe(int recipeId);
+  Future<bool> setMasterFlow(double flow);
+  Future<double> getMasterFlow();
+  Future<double> getTotalActualFlow();
+  Future<Map<String, dynamic>?> getSubsystemStatus(int subsystemId);
+  Future<Map<int, Map<String, dynamic>>> getAllSubsystemStatuses();
+  Future<int> startBatch(String operatorName);
+  Future<bool> endBatch();
+  Future<int> getCurrentBatchId();
+  // HMI Subsystem config
+  Future<List<EthercatSlaveInfo>> scanEthercatSlaves();
+  Future<String> getInputMode();
+  Future<List<SubsystemMappingInfo>> getSubsystemMappings();
+  Future<bool> updateSubsystemMapping(int subsystemId, int scaleId);
+  Future<bool> updateSlaveAlias(int position, String alias);
+  Future<bool> addSubsystemMapping(int subsystemId, String description,
+      {int scaleId = 0, int ioPosition = 0, int appType = 0});
+  Future<bool> setSubsystemAppType(int subsystemId, int appType);
+  Future<bool> setSubsystemEnabled(int subsystemId, bool enabled);
+  Future<bool> removeSubsystemMapping(int subsystemId);
+  // Hardware config status
+  Future<Map<String, dynamic>> getConfigStatus();
+  Future<bool> saveEthercatHardwareConfig(List<EthercatSlaveInfo> outputSlaves,
+      List<EthercatSlaveInfo> inputSlaves);
+  Future<Map<String, List<EthercatSlaveInfo>>> getEthercatHardwareConfig();
+  // Material Recipe API (per-subsystem parameter presets for different materials)
+  Future<bool> saveMaterialRecipe(int subsystemId, String name, int appType);
+  Future<bool> loadMaterialRecipe(
+      int subsystemId, int recipeId, String recipeName, int appType);
+  Future<List<Map<String, dynamic>>> getAllMaterialRecipes(int appType);
+  Future<bool> deleteMaterialRecipe(int recipeId, int appType);
+  Future<bool> setSubsystemActiveRecipe(int subsystemId, String recipeName) {
+    throw UnimplementedError(
+        'setSubsystemActiveRecipe() has not been implemented.');
+  }
+}

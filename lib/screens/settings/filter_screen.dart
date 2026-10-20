@@ -1,0 +1,307 @@
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:weighing_system_elinux/weighing_system_elinux.dart';
+import '../../l10n/app_localizations.dart';
+
+class FilterScreen extends StatefulWidget {
+  final int? subsystemId;
+  final int? scaleId;
+
+  const FilterScreen({super.key, this.subsystemId, this.scaleId});
+
+  @override
+  State<FilterScreen> createState() => _FilterScreenState();
+}
+
+class _FilterScreenState extends State<FilterScreen> {
+  int _scaleId = 0;
+  FilterStabilityConfig _config = const FilterStabilityConfig();
+  String _initialConfigSnapshot = '';
+  bool _loading = true;
+  bool _loadFailed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    _loadFailed = false;
+    try {
+      _scaleId = await _resolveScaleId();
+      _config = await WeighingPlatform.instance.getFilterStability(_scaleId);
+      _initialConfigSnapshot = jsonEncode(_config.toMap());
+    } catch (_) {
+      _loadFailed = true;
+    }
+    setState(() => _loading = false);
+  }
+
+  Future<int> _resolveScaleId() async {
+    if (widget.scaleId != null) return widget.scaleId!;
+    if (widget.subsystemId == null) return 0;
+    final mappings = await WeighingPlatform.instance.getSubsystemMappings();
+    final idx = mappings.indexWhere((m) => m.subsystemId == widget.subsystemId);
+    if (idx >= 0) return mappings[idx].scaleId;
+    throw StateError(
+      'Unable to locate scale configuration for subsystem: ${widget.subsystemId}',
+    );
+  }
+
+  Future<void> _save() async {
+    await WeighingPlatform.instance.updateFilterStability(_scaleId, _config);
+    _initialConfigSnapshot = jsonEncode(_config.toMap());
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context)!.save)),
+      );
+    }
+  }
+
+  bool get _hasUnsavedChanges =>
+      _initialConfigSnapshot.isNotEmpty &&
+      jsonEncode(_config.toMap()) != _initialConfigSnapshot;
+
+  Future<bool> _confirmDiscardOrSave() async {
+    if (!_hasUnsavedChanges || _loading) return true;
+
+    final choice = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('提示'),
+        content: const Text('当前修改尚未保存，是否保存后再返回？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('否'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('是'),
+          ),
+        ],
+      ),
+    );
+
+    if (choice == null) return false;
+    if (!choice) return true;
+    await _save();
+    return !_hasUnsavedChanges;
+  }
+
+  FilterStabilityConfig _update({
+    int? lowPassLevel,
+    bool? notchEnabled,
+    double? notchFrequency,
+    bool? adaptiveEnabled,
+    double? adaptiveRangeD,
+    double? motionRangeD,
+    double? motionDetectTime,
+    double? stabilityTimeout,
+  }) {
+    return FilterStabilityConfig(
+      lowPassLevel: lowPassLevel ?? _config.lowPassLevel,
+      notchEnabled: notchEnabled ?? _config.notchEnabled,
+      notchFrequency: notchFrequency ?? _config.notchFrequency,
+      adaptiveEnabled: adaptiveEnabled ?? _config.adaptiveEnabled,
+      adaptiveRangeD: adaptiveRangeD ?? _config.adaptiveRangeD,
+      motionRangeD: motionRangeD ?? _config.motionRangeD,
+      motionDetectTime: motionDetectTime ?? _config.motionDetectTime,
+      stabilityTimeout: stabilityTimeout ?? _config.stabilityTimeout,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // 获取强类型的本地化实例
+    final l = AppLocalizations.of(context)!;
+
+    // 将原先静态的 _lpLabels 放在 build 中动态获取，以响应语言切换
+    final lpLabels = [l.veryLight, l.light, l.medium, l.heavy];
+
+    if (_loading) {
+      return Scaffold(
+        appBar: AppBar(title: Text(l.filter)),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_loadFailed) {
+      return Scaffold(
+        appBar: AppBar(title: Text(l.filter)),
+        body: Center(child: Text(l.loadScaleSettingsFailed)),
+      );
+    }
+
+    return WillPopScope(
+      onWillPop: _confirmDiscardOrSave,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(l.filter),
+          actions: [
+            TextButton.icon(
+              icon: const Icon(Icons.save),
+              label: Text(l.save),
+              onPressed: _save,
+            ),
+          ],
+        ),
+        body: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            // Low-pass filter
+            Text(
+              l.lowPassFilter,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<int>(
+              value: _config.lowPassLevel,
+              decoration: InputDecoration(
+                labelText: l.lowPassFilter,
+                border: const OutlineInputBorder(),
+                isDense: true,
+              ),
+              items: List.generate(
+                4,
+                (i) => DropdownMenuItem(value: i, child: Text(lpLabels[i])),
+              ),
+              onChanged: (v) =>
+                  setState(() => _config = _update(lowPassLevel: v)),
+            ),
+
+            const Divider(height: 32),
+
+            // Notch filter
+            Text(l.notchFilter, style: Theme.of(context).textTheme.titleMedium),
+            SwitchListTile(
+              title: Text(l.enabled),
+              value: _config.notchEnabled,
+              onChanged: (v) =>
+                  setState(() => _config = _update(notchEnabled: v)),
+            ),
+            if (_config.notchEnabled)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: TextFormField(
+                  initialValue: _config.notchFrequency.toString(),
+                  decoration: InputDecoration(
+                    labelText: l.frequencyHz, // 替换为国际化变量
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  onChanged: (t) {
+                    final v = double.tryParse(t);
+                    if (v != null && v > 0) {
+                      setState(() => _config = _update(notchFrequency: v));
+                    }
+                  },
+                ),
+              ),
+
+            const Divider(height: 32),
+
+            // Adaptive filter
+            Text(
+              l.adaptiveFilter,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            SwitchListTile(
+              title: Text(l.enabled),
+              value: _config.adaptiveEnabled,
+              onChanged: (v) =>
+                  setState(() => _config = _update(adaptiveEnabled: v)),
+            ),
+            if (_config.adaptiveEnabled)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: TextFormField(
+                  initialValue: _config.adaptiveRangeD.toString(),
+                  decoration: InputDecoration(
+                    labelText: l.rangeD, // 替换为国际化变量
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  onChanged: (t) {
+                    final v = double.tryParse(t);
+                    if (v != null && v > 0) {
+                      setState(() => _config = _update(adaptiveRangeD: v));
+                    }
+                  },
+                ),
+              ),
+
+            const Divider(height: 32),
+
+            // Stability
+            Text(l.stability, style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+
+            TextFormField(
+              initialValue: _config.motionRangeD.toString(),
+              decoration: InputDecoration(
+                labelText: '${l.motionRange} (d)',
+                border: const OutlineInputBorder(),
+                isDense: true,
+              ),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              onChanged: (t) {
+                final v = double.tryParse(t);
+                if (v != null && v >= 0) {
+                  setState(() => _config = _update(motionRangeD: v));
+                }
+              },
+            ),
+            const SizedBox(height: 12),
+
+            TextFormField(
+              initialValue: _config.motionDetectTime.toString(),
+              decoration: InputDecoration(
+                labelText: '${l.motionDetectTime} (s)',
+                border: const OutlineInputBorder(),
+                isDense: true,
+              ),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              onChanged: (t) {
+                final v = double.tryParse(t);
+                if (v != null && v >= 0) {
+                  setState(() => _config = _update(motionDetectTime: v));
+                }
+              },
+            ),
+            const SizedBox(height: 12),
+
+            TextFormField(
+              initialValue: _config.stabilityTimeout.toString(),
+              decoration: InputDecoration(
+                labelText: '${l.stabilityTimeout} (s)',
+                border: const OutlineInputBorder(),
+                isDense: true,
+              ),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              onChanged: (t) {
+                final v = double.tryParse(t);
+                if (v != null && v >= 0) {
+                  setState(() => _config = _update(stabilityTimeout: v));
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

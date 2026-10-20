@@ -1,0 +1,29 @@
+name: hmi_edge_preview
+description: Plugin-free Flutter web preview of the weighing HMI. Open in Microsoft Edge.
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  provider: ^6.1.1
+  intl: ^0.20.2
+  cupertino_icons: ^1.0.8
+  weighing_system_elinux:
+    path: ./packages/weighing_system_elinux
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  generate: true
+  uses-material-design: true
+  assets:
+    - assets/images/

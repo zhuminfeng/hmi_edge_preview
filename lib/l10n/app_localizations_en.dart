@@ -1,0 +1,1656 @@
+// ignore: unused_import
+import 'package:intl/intl.dart' as intl;
+import 'app_localizations.dart';
+
+// ignore_for_file: type=lint
+
+/// The translations for English (`en`).
+class AppLocalizationsEn extends AppLocalizations {
+  AppLocalizationsEn([String locale = 'en']) : super(locale);
+
+  @override
+  String get appTitle => 'Multi-Function Weighing System';
+
+  @override
+  String get lossInWeight => 'Loss-in-Weight';
+
+  @override
+  String get filling => 'Filling / Dispensing';
+
+  @override
+  String get selectApp => 'Select Application';
+
+  @override
+  String get settings => 'Settings';
+
+  @override
+  String get scaleSettings => 'Scale Settings';
+
+  @override
+  String get appSettings => 'Application Settings';
+
+  @override
+  String get calibration => 'Calibration';
+
+  @override
+  String get filter => 'Filter & Stability';
+
+  @override
+  String get continuous => 'Continuous';
+
+  @override
+  String get batch => 'Batch';
+
+  @override
+  String get systemId => 'System Identification';
+
+  @override
+  String get flowControl => 'Flow Control';
+
+  @override
+  String get fixedFrequency => 'Fixed Frequency';
+
+  @override
+  String get start => 'Start';
+
+  @override
+  String get stop => 'Stop';
+
+  @override
+  String get zero => 'Zero';
+
+  @override
+  String get tare => 'Tare';
+
+  @override
+  String get clearTare => 'Clear Tare';
+
+  @override
+  String get presetTare => 'Preset Tare';
+
+  @override
+  String get eprint => 'Print';
+
+  @override
+  String get weight => 'Weight';
+
+  @override
+  String get grossWeight => 'Gross Weight';
+
+  @override
+  String get netWeight => 'Net Weight';
+
+  @override
+  String get tareWeight => 'Tare Weight';
+
+  @override
+  String get flow => 'Flow';
+
+  @override
+  String get currentFlow => 'Current Flow';
+
+  @override
+  String get targetFlow => 'Target Flow';
+
+  @override
+  String get controlRate => 'Control Rate';
+
+  @override
+  String get stable => 'Stable';
+
+  @override
+  String get inMotion => 'In Motion';
+
+  @override
+  String get overload => 'Overload';
+
+  @override
+  String get underload => 'Underload';
+
+  @override
+  String get running => 'Running';
+
+  @override
+  String get idle => 'Idle';
+
+  @override
+  String get completed => 'Completed';
+
+  @override
+  String get error => 'Error';
+
+  @override
+  String get refilling => 'Refilling';
+
+  @override
+  String get emptying => 'Emptying';
+
+  @override
+  String get capacity => 'Capacity';
+
+  @override
+  String get division => 'Division';
+
+  @override
+  String get unit => 'Unit';
+
+  @override
+  String get overloadRange => 'Overload Range';
+
+  @override
+  String get autoZeroTracking => 'Auto Zero Tracking';
+
+  @override
+  String get zeroConfig => 'Zero Configuration';
+
+  @override
+  String get tareConfig => 'Tare Configuration';
+
+  @override
+  String get calZero => 'Zero Calibration';
+
+  @override
+  String get calSpan => 'Span Calibration';
+
+  @override
+  String get calStep => 'Step Calibration';
+
+  @override
+  String get calStart => 'Start';
+
+  @override
+  String get calSave => 'Save';
+
+  @override
+  String get calAbort => 'Abort';
+
+  @override
+  String get calComplete => 'Completed';
+
+  @override
+  String get calFailed => 'Failed';
+
+  @override
+  String get calInProgress => 'In Progress';
+
+  @override
+  String get calDynamic => 'Dynamic Completed';
+
+  @override
+  String get lowPassFilter => 'Low-Pass Filter';
+
+  @override
+  String get notchFilter => 'Notch Filter';
+
+  @override
+  String get adaptiveFilter => 'Adaptive Filter';
+
+  @override
+  String get stability => 'Stability';
+
+  @override
+  String get motionRange => 'Motion Range';
+
+  @override
+  String get motionDetectTime => 'Motion Detect Time';
+
+  @override
+  String get stabilityTimeout => 'Stability Timeout';
+
+  @override
+  String get systemConfig => 'System Configuration';
+
+  @override
+  String get controllerConfig => 'Controller Configuration';
+
+  @override
+  String get refillConfig => 'Refill Configuration';
+
+  @override
+  String get targetValues => 'Target Values';
+
+  @override
+  String get toleranceCheck => 'Tolerance Check';
+
+  @override
+  String get emptyingConfig => 'Emptying Configuration';
+
+  @override
+  String get warningConfig => 'Warning Configuration';
+
+  @override
+  String get advancedConfig => 'Advanced Configuration';
+
+  @override
+  String get statisticsConfig => 'Statistics Configuration';
+
+  @override
+  String get flowMonitor => 'Flow Monitoring';
+
+  @override
+  String get fillMode => 'Fill Mode';
+
+  @override
+  String get fillEmpty => 'Fill / Empty';
+
+  @override
+  String get dispense => 'Dispense';
+
+  @override
+  String get refillDispense => 'Refill / Dispense';
+
+  @override
+  String get absoluteValue => 'Absolute Value';
+
+  @override
+  String get autoTare => 'Auto Tare';
+
+  @override
+  String get spillOpt => 'Spill Optimization';
+
+  @override
+  String get cutoffOpt => 'Cutoff Optimization';
+
+  @override
+  String get jog => 'Fine-Tune (Jog)';
+
+  @override
+  String get refill => 'Refill';
+
+  @override
+  String get events => 'Events & Warnings';
+
+  @override
+  String get advanced => 'Advanced';
+
+  @override
+  String get language => 'Language';
+
+  @override
+  String get chinese => 'Chinese';
+
+  @override
+  String get english => 'English';
+
+  @override
+  String get accumulatedWeight => 'Accumulated Weight';
+
+  @override
+  String get totalAccumulated => 'Total Accumulated';
+
+  @override
+  String get remainingTime => 'Remaining Time';
+
+  @override
+  String get batchTarget => 'Batch Target';
+
+  @override
+  String get inFlight => 'In-Flight';
+
+  @override
+  String get save => 'Save';
+
+  @override
+  String get cancel => 'Cancel';
+
+  @override
+  String get confirm => 'Confirm';
+
+  @override
+  String get disabled => 'Disabled';
+
+  @override
+  String get enabled => 'Enabled';
+
+  @override
+  String get auto => 'Automatic';
+
+  @override
+  String get manual => 'Manual';
+
+  @override
+  String get digitalOutputMapping => 'Digital Output Mapping';
+
+  @override
+  String get doBitRouting => 'DO bit routing / subsystem mapping';
+
+  @override
+  String get baseConfig => 'Base';
+
+  @override
+  String get system => 'System';
+
+  @override
+  String get controller => 'Controller';
+
+  @override
+  String get general => 'General';
+
+  @override
+  String get target => 'Target';
+
+  @override
+  String get mode => 'Mode';
+
+  @override
+  String get subMode => 'Sub-Mode';
+
+  @override
+  String get safetyLimit => 'Safety Limit';
+
+  @override
+  String get hopperMin => 'Hopper Min';
+
+  @override
+  String get hopperMax => 'Hopper Max';
+
+  @override
+  String get targetControlRate => 'Target Control Rate';
+
+  @override
+  String get preRefill => 'Pre Refill';
+
+  @override
+  String get adjustRangeLower => 'Adjust Range Lower';
+
+  @override
+  String get adjustRangeUpper => 'Adjust Range Upper';
+
+  @override
+  String get smartStepControl => 'Smart Step Control';
+
+  @override
+  String get stepDuration => 'Step Duration';
+
+  @override
+  String get filterWindowSysId => 'Filter Window (SysId)';
+
+  @override
+  String get tuningMode => 'Tuning Mode';
+
+  @override
+  String get filterWindowCtrl => 'Filter Window (Ctrl)';
+
+  @override
+  String get kp => 'Kp';
+
+  @override
+  String get ki => 'Ki';
+
+  @override
+  String get kd => 'Kd';
+
+  @override
+  String get maxFlow => 'Max Flow';
+
+  @override
+  String get startupTime => 'Startup Time';
+
+  @override
+  String get lowerLimit => 'Lower Limit';
+
+  @override
+  String get upperLimit => 'Upper Limit';
+
+  @override
+  String get controlMode => 'Control Mode';
+
+  @override
+  String get fixed => 'Fixed';
+
+  @override
+  String get lastFreq => 'Last Freq';
+
+  @override
+  String get smart => 'Smart';
+
+  @override
+  String get controlSetpoint => 'Control Setpoint';
+
+  @override
+  String get stabilizeTime => 'Stabilize Time';
+
+  @override
+  String get fineFeedThreshold => 'Fine Feed Threshold';
+
+  @override
+  String get fineFeedFlow => 'Fine Feed Flow';
+
+  @override
+  String get preCheckDelay => 'Pre Check Delay';
+
+  @override
+  String get tolerance => 'Tolerance';
+
+  @override
+  String get autoStopAtAlarm => 'Auto Stop At Alarm';
+
+  @override
+  String get controlRateLower => 'Control Rate Lower';
+
+  @override
+  String get controlRateUpper => 'Control Rate Upper';
+
+  @override
+  String get refillTimeout => 'Refill Timeout';
+
+  @override
+  String get stopOnError => 'Stop On Error';
+
+  @override
+  String get evaluationWindow => 'Evaluation Window';
+
+  @override
+  String get deviationThreshold => 'Deviation Threshold';
+
+  @override
+  String get surgeThreshold => 'Surge Threshold';
+
+  @override
+  String get interlockEnabled => 'Interlock Enabled';
+
+  @override
+  String get interlockDelay => 'Interlock Delay';
+
+  @override
+  String get samplePeriod => 'Sample Period';
+
+  @override
+  String get sampleTolerance => 'Sample Tolerance';
+
+  @override
+  String get workMode => 'Work Mode';
+
+  @override
+  String get powerFailRecovery => 'Power Fail Recovery';
+
+  @override
+  String get startDelay => 'Start Delay';
+
+  @override
+  String get feedSpeed => 'Feed Speed';
+
+  @override
+  String get single => 'Single';
+
+  @override
+  String get dual => 'Dual';
+
+  @override
+  String get targetValue => 'Target Value';
+
+  @override
+  String get feed => 'Feed';
+
+  @override
+  String get feedInhibitTime => 'Feed Inhibit Time';
+
+  @override
+  String get fastFeedInhibitTime => 'Fast Feed Inhibit Time';
+
+  @override
+  String get autoTareEnabled => 'Auto Tare Enabled';
+
+  @override
+  String get containerTareUpper => 'Container Tare Upper';
+
+  @override
+  String get containerTareLower => 'Container Tare Lower';
+
+  @override
+  String get positiveTolerance => 'Positive Tolerance';
+
+  @override
+  String get negativeTolerance => 'Negative Tolerance';
+
+  @override
+  String get adjustRange => 'Adjust Range';
+
+  @override
+  String get adjustSamples => 'Adjust Samples';
+
+  @override
+  String get adjustFactor => 'Adjust Factor';
+
+  @override
+  String get controlReliabilityRange => 'Control Reliability Range';
+
+  @override
+  String get adjustCycles => 'Adjust Cycles';
+
+  @override
+  String get singlePulse => 'Single Pulse';
+
+  @override
+  String get jogDuration => 'Jog Duration';
+
+  @override
+  String get jogPauseTime => 'Jog Pause Time';
+
+  @override
+  String get maxCycles => 'Max Cycles';
+
+  @override
+  String get completeMode => 'Complete Mode';
+
+  @override
+  String get residualWeight => 'Residual Weight';
+
+  @override
+  String get time => 'Time';
+
+  @override
+  String get completionTime => 'Completion Time';
+
+  @override
+  String get initialFeedTimeout => 'Initial Feed Timeout';
+
+  @override
+  String get emptyingTimeout => 'Emptying Timeout';
+
+  @override
+  String get processTimeout => 'Process Timeout';
+
+  @override
+  String get cycleConfirm => 'Cycle Confirm';
+
+  @override
+  String get every => 'Every';
+
+  @override
+  String get outOfTolerance => 'Out of Tolerance';
+
+  @override
+  String get fastRecovery => 'Fast Recovery';
+
+  @override
+  String get staticVal => 'Static';
+
+  @override
+  String get fastFeedSpeed => 'Fast Feed Speed';
+
+  @override
+  String get fineFeedSpeed => 'Fine Feed Speed';
+
+  @override
+  String get pause => 'Pause';
+
+  @override
+  String get min5 => '5 min';
+
+  @override
+  String get min15 => '15 min';
+
+  @override
+  String get min30 => '30 min';
+
+  @override
+  String get fill => 'Fill';
+
+  @override
+  String get stats => 'Stats';
+
+  @override
+  String get calZeroInProgress => 'Zero calibration in progress...';
+
+  @override
+  String get calZeroCompleted => 'Zero calibration completed';
+
+  @override
+  String get calZeroFailed => 'Zero calibration failed: ';
+
+  @override
+  String get invalidTestLoad => 'Invalid test load';
+
+  @override
+  String get calSpanInProgress => 'Span calibration in progress...';
+
+  @override
+  String get calSpanWaiting => 'Span calibration - waiting for confirmation';
+
+  @override
+  String get calSpanFailed => 'Span calibration failed: ';
+
+  @override
+  String get calSavedSuccess => 'Calibration saved successfully';
+
+  @override
+  String get calSaveFailed => 'Failed to save calibration';
+
+  @override
+  String get saveFailed => 'Save failed: ';
+
+  @override
+  String get calAborted => 'Calibration aborted';
+
+  @override
+  String get invalidStepWeight => 'Invalid step test weight';
+
+  @override
+  String get calStepStarted => 'Step calibration started...';
+
+  @override
+  String get calStepFailed => 'Step calibration failed: ';
+
+  @override
+  String get linearDisabled => 'Disabled (Zero + 1 point)';
+
+  @override
+  String get linear3Point => '3-Point (Zero + Mid + High)';
+
+  @override
+  String get linear4Point => '4-Point (Zero + Low + Mid + High)';
+
+  @override
+  String get linear5Point => '5-Point (Zero + Low + Mid + MidHigh + High)';
+
+  @override
+  String get clearScalePressStart =>
+      'Clear the scale platform and press Start.';
+
+  @override
+  String get linearCalibration => 'Linear Calibration';
+
+  @override
+  String testLoadKg(int num) {
+    return 'Test Load $num (kg)';
+  }
+
+  @override
+  String get testWeightKg => 'Test Weight (kg)';
+
+  @override
+  String get validationPassed => 'Configuration validation passed';
+
+  @override
+  String get validationFailed => 'Validation failed: ';
+
+  @override
+  String get saveSuccess => 'Save successful';
+
+  @override
+  String get saveFailedMsg => 'Save failed';
+
+  @override
+  String get loadScaleSettingsFailed => 'Failed to load scale settings';
+
+  @override
+  String get confirmDelete => 'Confirm Delete';
+
+  @override
+  String get confirmDeleteDOMsg =>
+      'Are you sure you want to delete this Digital Output mapping?';
+
+  @override
+  String get delete => 'Delete';
+
+  @override
+  String get editMapping => 'Edit Mapping';
+
+  @override
+  String get enterValidInteger => 'Please enter a valid integer';
+
+  @override
+  String get add => 'Add';
+
+  @override
+  String get validate => 'Validate';
+
+  @override
+  String get noMappingsMsg =>
+      'No mappings available. Click \"Add\" in the top right corner to add.';
+
+  @override
+  String get veryLight => 'Very Light';
+
+  @override
+  String get light => 'Light';
+
+  @override
+  String get medium => 'Medium';
+
+  @override
+  String get heavy => 'Heavy';
+
+  @override
+  String get frequencyHz => 'Frequency (Hz)';
+
+  @override
+  String get rangeD => 'Range (d)';
+
+  @override
+  String divisionCount(int count) {
+    return 'Division count: $count';
+  }
+
+  @override
+  String get autoZeroTrackingD => 'Auto Zero Tracking (d)';
+
+  @override
+  String get underloadD => 'Underload (d)';
+
+  @override
+  String get powerUpZero => 'Power-up Zero';
+
+  @override
+  String get pushbuttonZero => 'Pushbutton Zero';
+
+  @override
+  String get pushbuttonTare => 'Pushbutton Tare';
+
+  @override
+  String get off => 'Off';
+
+  @override
+  String get grossText => 'Gross';
+
+  @override
+  String get grossNet => 'Gross + Net';
+
+  @override
+  String get lastVal => 'Last';
+
+  @override
+  String get calibrated => 'Calibrated';
+
+  @override
+  String get newVal => 'New';
+
+  @override
+  String get fillProgress => 'Fill Progress';
+
+  @override
+  String get fastFeedPhase => 'Fast Feed';
+
+  @override
+  String get fineFeedPhase => 'Fine Feed';
+
+  @override
+  String get emptyingPhase => 'Emptying Container';
+
+  @override
+  String get processDetails => 'Process Details';
+
+  @override
+  String get refillingPhase => 'Refilling';
+
+  @override
+  String get feedingPhase => 'Feeding';
+
+  @override
+  String get emptyingFlowPhase => 'Emptying Flow';
+
+  @override
+  String get stableIndicator => '◉ STABLE';
+
+  @override
+  String get motionIndicator => '◎ MOTION';
+
+  @override
+  String get netIndicator => 'NET';
+
+  @override
+  String get signalAnalyzer => 'Signal Analyzer';
+
+  @override
+  String get exportCsv => 'Export';
+
+  @override
+  String get startAnalysis => 'Start';
+
+  @override
+  String get stopAnalysis => 'Stop';
+
+  @override
+  String get showFlow => 'Flow Rate';
+
+  @override
+  String get showTargetFlow => 'Target Flow';
+
+  @override
+  String get showControlRate => 'Control Rate';
+
+  @override
+  String get showRefill => 'Refill Signal';
+
+  @override
+  String get showRunning => 'Run Signal';
+
+  @override
+  String get showFillingLevel => 'Filling Level';
+
+  @override
+  String get runtimeInfo => 'Runtime Information';
+
+  @override
+  String get xAxisViewLength => 'X-Axis View Length (s)';
+
+  @override
+  String get autoStopRecording => 'Auto Stop Recording (s)';
+
+  @override
+  String get exportSuccess => 'Exported to: ';
+
+  @override
+  String get batchTargetWeight => 'Batch Target Weight (kg)';
+
+  @override
+  String get currentBatchWeight => 'Current Batch Weight (kg)';
+
+  @override
+  String get eta => 'ETA (hh:mm:ss)';
+
+  @override
+  String get subsystemId => 'Subsystem ID';
+
+  @override
+  String get ioPosition => 'I/O Position';
+
+  @override
+  String get channel => 'Channel';
+
+  @override
+  String get bitIndex => 'Bit Index';
+
+  @override
+  String get appScope => 'Application Scope';
+
+  @override
+  String get signal => 'Signal Type';
+
+  @override
+  String get activeHigh => 'Active High';
+
+  @override
+  String get hardwareConfig => 'Hardware Configuration';
+
+  @override
+  String get signalConfig => 'Signal Configuration';
+
+  @override
+  String get scopeConfig => 'Scope Configuration';
+
+  @override
+  String get subsystemIdHint =>
+      'The subsystem identifier this output belongs to';
+
+  @override
+  String get ioPosHint =>
+      'Physical I/O module position in the EtherCAT network';
+
+  @override
+  String get channelHint => 'Weighing channel (0 or 1)';
+
+  @override
+  String get bitIndexHint => 'Digital output bit number (0-15)';
+
+  @override
+  String get appScopeHint => 'Application scope filter (0 = all)';
+
+  @override
+  String get signalTypeHint => 'The control signal this output represents';
+
+  @override
+  String get activeHighHint => 'Output is active when signal is HIGH';
+
+  @override
+  String get enabledStatus => 'Enabled Status';
+
+  @override
+  String get mappingDetails => 'Mapping Details';
+
+  @override
+  String get outputConfiguration => 'Digital Output Configuration';
+
+  @override
+  String get noMappingsHint =>
+      'No digital output mappings configured yet. Tap the \'+\' button to create your first mapping.';
+
+  @override
+  String get feedFast => 'Fast Feed';
+
+  @override
+  String get feedSlow => 'Slow Feed / Fine Feed';
+
+  @override
+  String get refillValve => 'Refill Valve';
+
+  @override
+  String get emptyingValve => 'Emptying Valve';
+
+  @override
+  String get alarm => 'Alarm Signal';
+
+  @override
+  String get runningSignal => 'Running Indicator';
+
+  @override
+  String get warningSignal => 'Warning Indicator';
+
+  @override
+  String get confirmDeleteServoMsg =>
+      'Are you sure you want to delete this Servo Motor mapping?';
+
+  @override
+  String get bagClamp => 'Bag Clamp / Release';
+
+  @override
+  String get editServoMapping => 'Edit Servo Mapping';
+
+  @override
+  String get servoPosition => 'Servo Physical Position';
+
+  @override
+  String get servoPositionHint =>
+      'Position index of the servo drive in the EtherCAT network';
+
+  @override
+  String get channelServoHint =>
+      'Used to distinguish multiple servo motors with the same function';
+
+  @override
+  String get addDigitalIo => 'Add Digital I/O';
+
+  @override
+  String get addServoMotor => 'Add Servo Motor';
+
+  @override
+  String get digitalIoMappingSection => 'Digital IO Mapping';
+
+  @override
+  String get noDigitalIoConfig => 'No digital IO configuration';
+
+  @override
+  String get servoRoutingSection => 'Servo Motor Routing';
+
+  @override
+  String get noServoConfig => 'No servo motor configuration';
+
+  @override
+  String get scopeBoth => 'Both (General)';
+
+  @override
+  String get scopeLiwOnly => 'LIW Only';
+
+  @override
+  String get scopeFillingOnly => 'Filling Only';
+
+  @override
+  String get slavePositionPrefix => 'Slave Pos';
+
+  @override
+  String get hmiConfig => 'HMI Config';
+
+  @override
+  String get hmiConfigSubtitle => 'Device Discovery / Subsystem Scale Binding';
+
+  @override
+  String get ethercatDevices => 'EtherCAT Devices';
+
+  @override
+  String get scanDevices => 'Scan';
+
+  @override
+  String get scanning => 'Scanning...';
+
+  @override
+  String get noDevicesFound => 'No devices found';
+
+  @override
+  String get deviceAlias => 'Device Alias';
+
+  @override
+  String get deviceAliasHint => 'Enter custom alias';
+
+  @override
+  String get assignToSubsystem => 'Assign Subsystem';
+
+  @override
+  String get shmemMode => 'Shared Memory Mode (shmem)';
+
+  @override
+  String get ethercatMode => 'EtherCAT Mode';
+
+  @override
+  String get inputModeLabel => 'Input Mode';
+
+  @override
+  String get channelSelect => 'Channel Select';
+
+  @override
+  String get noDeviceAssigned => 'Not configured';
+
+  @override
+  String deviceDiscovered(int count) {
+    return '$count device(s) discovered';
+  }
+
+  @override
+  String get subsystemScaleBinding => 'Subsystem Scale Binding';
+
+  @override
+  String get selectWeighingDevice => 'Select Weighing Device';
+
+  @override
+  String get vendorId => 'Vendor ID';
+
+  @override
+  String get productCode => 'Product Code';
+
+  @override
+  String get position => 'Position';
+
+  @override
+  String get slaveRoleWeighing => 'Weighing';
+
+  @override
+  String get slaveRoleDigitalIO => 'Digital IO';
+
+  @override
+  String get slaveRoleServo => 'Servo';
+
+  @override
+  String get slaveRoleUnknown => 'Unknown';
+
+  @override
+  String get saveAlias => 'Save Alias';
+
+  @override
+  String get aliasUpdated => 'Alias updated';
+
+  @override
+  String get aliasFailed => 'Alias update failed';
+
+  @override
+  String get mappingUpdated => 'Mapping updated';
+
+  @override
+  String get mappingFailed => 'Mapping update failed';
+
+  @override
+  String get channel0 => 'Channel 0';
+
+  @override
+  String get channel1 => 'Channel 1';
+
+  @override
+  String get addSubsystem => 'Add Subsystem';
+
+  @override
+  String get addSubsystemTitle => 'Add Subsystem';
+
+  @override
+  String get noSubsystemsConfigured => 'No subsystems configured yet';
+
+  @override
+  String get removeSubsystem => 'Remove Subsystem';
+
+  @override
+  String confirmRemoveSubsystem(int id) {
+    return 'Remove subsystem $id?';
+  }
+
+  @override
+  String get subsystemIdLabel => 'Subsystem ID';
+
+  @override
+  String get subsystemDescLabel => 'Description';
+
+  @override
+  String get subsystemDescHint => 'e.g. Feeder Line 1';
+
+  @override
+  String get addSuccess => 'Added successfully';
+
+  @override
+  String get addFailed => 'Failed to add';
+
+  @override
+  String get removeFailed => 'Failed to remove';
+
+  @override
+  String get removeSuccess => 'Removed';
+
+  @override
+  String get applyConfig => 'Apply Config';
+
+  @override
+  String get applyConfigConfirm =>
+      'The system will reinitialize to apply the new configuration. Running tasks will stop. Continue?';
+
+  @override
+  String get applyConfigInProgress => 'Reinitializing...';
+
+  @override
+  String get applyConfigSuccess => 'Configuration applied, system restarted';
+
+  @override
+  String get applyConfigFailed => 'Failed to apply configuration';
+
+  @override
+  String get setupRequired => 'Initial Setup Required';
+
+  @override
+  String get setupRequiredHint =>
+      'Hardware configuration is incomplete. Please go to Settings to complete the initial setup before using the system.';
+
+  @override
+  String get goToSettings => 'Go to Settings';
+
+  @override
+  String get hardwareConfigMissing => 'Hardware Config Incomplete';
+
+  @override
+  String get hardwareConfigMissingHint =>
+      'The config file is missing input_source or output settings. Scan devices on this page, then tap \"Save Hardware Config\" and apply.';
+
+  @override
+  String get dioConfigMissing => 'Digital Output Not Configured';
+
+  @override
+  String get dioConfigMissingHint =>
+      'No digital_output_map found in config. Add mappings here, save, then apply the configuration.';
+
+  @override
+  String get saveHardwareConfig => 'Save Hardware Config';
+
+  @override
+  String get saveHardwareConfigConfirm =>
+      'Save the scanned devices as hardware config (output / input_source.ethercat). After saving, tap Apply Config to reinitialize the system.';
+
+  @override
+  String get saveHardwareConfigSuccess =>
+      'Hardware config saved. Please apply config to reinitialize.';
+
+  @override
+  String get saveHardwareConfigFailed => 'Failed to save hardware config';
+
+  @override
+  String get noSlavesScannedYet => 'No devices scanned yet. Please scan first.';
+
+  @override
+  String get dismiss => 'Dismiss';
+
+  @override
+  String get subsystemConfigTitle => 'Subsystem Configuration';
+
+  @override
+  String get subsystemName => 'Subsystem Name';
+
+  @override
+  String get appType => 'Application Type';
+
+  @override
+  String get noSubsystemsSetupTitle => 'Configure Subsystems';
+
+  @override
+  String get noSubsystemsSetupHint =>
+      'No subsystems are configured. Please go to the subsystem configuration page to add and enable at least one subsystem.';
+
+  @override
+  String get configureSubsystems => 'Configure Subsystems';
+
+  @override
+  String get expandDetail => 'Expand Detail';
+
+  @override
+  String ethercatConflictError(String names) {
+    return 'Enable failed: subsystem(s) $names already use the same EtherCAT instrument. Please resolve the conflict first.';
+  }
+
+  @override
+  String get materialRecipeTitle => 'Recipe Settings';
+
+  @override
+  String get materialRecipeSubtitle =>
+      'Manage material recipes for this subsystem';
+
+  @override
+  String get digitalInputMapping => 'Digital Input Mapping';
+
+  @override
+  String get diInputRouting => 'DI bit routing / key mapping';
+
+  @override
+  String get subsystemEnabledHint =>
+      'Subsystem is enabled and will participate in system operation';
+
+  @override
+  String get subsystemDisabledHint =>
+      'Subsystem is disabled and will not participate in system operation';
+
+  @override
+  String get diBinding => 'Input Binding';
+
+  @override
+  String get diStart => 'Start';
+
+  @override
+  String get diStop => 'Stop';
+
+  @override
+  String get diReset => 'Reset Signal';
+
+  @override
+  String get diRefillRequest => 'Refill Request';
+
+  @override
+  String get diEmergencyStop => 'Emergency Stop';
+
+  @override
+  String diCustomKey(int n) {
+    return 'Custom Key $n';
+  }
+
+  @override
+  String loadedRecipe(String recipeName) {
+    return 'Loaded Recipe: $recipeName';
+  }
+
+  @override
+  String recipeModified(String recipeName) {
+    return 'Current Recipe: $recipeName (Modified)';
+  }
+
+  @override
+  String recipeActive(String recipeName) {
+    return 'Active Recipe: $recipeName';
+  }
+
+  @override
+  String get recipeNotSavedHint =>
+      'Current parameters are not saved as a recipe. It is recommended to name and save them for quick access.';
+
+  @override
+  String get recipeNameLabel => 'Recipe Name';
+
+  @override
+  String get recipeNameInputHint => 'Enter recipe name (e.g., Material_50kg)';
+
+  @override
+  String get recipeUpdateSaveAs => 'Update / Save As';
+
+  @override
+  String get recipeSaveAs => 'Save as Recipe';
+
+  @override
+  String get recipeNameRequired => 'Please enter a recipe name';
+
+  @override
+  String get recipeSavedTitle => 'Recipe Saved Successfully';
+
+  @override
+  String recipeSavedPrompt(String recipeName) {
+    return 'Recipe \"$recipeName\" has been saved to the database.\n\nDo you want to set it as the active recipe for the current system?';
+  }
+
+  @override
+  String get recipeSaveOnly => 'Save Only';
+
+  @override
+  String get recipeActivate => 'Activate Recipe';
+
+  @override
+  String recipeActivated(String recipeName) {
+    return 'Activated recipe: $recipeName';
+  }
+
+  @override
+  String get recipeActivationFailed =>
+      'Activation failed: Unable to write to system config';
+
+  @override
+  String recipeSavedNotActivated(String recipeName) {
+    return 'Recipe \"$recipeName\" saved (Not activated)';
+  }
+
+  @override
+  String get recipeSaveFailed => 'Failed to save recipe';
+
+  @override
+  String get liveGrossWeight => 'Live Gross Weight';
+
+  @override
+  String get calUnitLabel => 'Calibration Unit (Physical Weights)';
+
+  @override
+  String get spanCalAcquiringFirst =>
+      'Status: Acquiring test weight 1, keep scale stable...';
+
+  @override
+  String spanCalStepCompleted(int step, int nextStep) {
+    return 'Test weight $step completed.\nAdd test weight $nextStep and press Continue.';
+  }
+
+  @override
+  String get stepCalAcquiringFirst =>
+      'Status: Acquiring initial step weight, keep scale stable...';
+
+  @override
+  String get calInProgressDefault => 'Calibration in progress...';
+
+  @override
+  String spanCalStepSuccessNext(int step, int nextStep, String weight) {
+    return 'Test weight $step acquired!\nLoad test weight $nextStep ($weight kg) and press Continue.';
+  }
+
+  @override
+  String get calDynamicCompletedMsg =>
+      'Dynamic Complete: Calibrated while weight was unstable';
+
+  @override
+  String get calSpanSuccessSave =>
+      'Completed: Span calibration successful! Press [Save] to apply.';
+
+  @override
+  String stepCalStepSuccess(String weight) {
+    return 'Target ($weight kg) acquired!\nPress Continue to remove weight, or Save & Complete.';
+  }
+
+  @override
+  String get calZeroSuccessSave =>
+      'Completed: Zero calibration successful! Press [Save] to apply.';
+
+  @override
+  String get spanCalDynamicWarning =>
+      'Dynamic Complete: Motion detected on final step.\nPress [Save] to accept, or [Cancel] to abort.';
+
+  @override
+  String get calDynamicAcceptPrompt =>
+      'Warning: Calibrated dynamically (motion detected).\nAccept this calibration?';
+
+  @override
+  String calFailedMsg(String msg) {
+    return 'Calibration failed: $msg';
+  }
+
+  @override
+  String opFailedMsg(String msg) {
+    return 'Operation failed: $msg';
+  }
+
+  @override
+  String get calZeroInProgressMsg => 'Executing zero calibration...';
+
+  @override
+  String spanCalAcquiringStatic(int step) {
+    return 'Status: Acquiring test weight $step, keep scale stable...';
+  }
+
+  @override
+  String get savingDataMsg => 'Saving data...';
+
+  @override
+  String get calAbortedMsg =>
+      'Aborted: Calibration cancelled, no values saved.';
+
+  @override
+  String get stepInstRemovePrepared =>
+      'Initial step done. Press [Continue] to prepare removal.';
+
+  @override
+  String get stepInstRemoveWait =>
+      'Remove all test weights. Wait for zero, then press [Remove Confirm].';
+
+  @override
+  String get stepInstSubstituteWait =>
+      'Fill substitute material to target weight, then press [Add Confirm].';
+
+  @override
+  String get stepInstNextLoad =>
+      'Substitute added! Put test weights back and press [Start] for next step.';
+
+  @override
+  String get stepInstIdle =>
+      'Enter test weight, place on scale, and press [Start].';
+
+  @override
+  String get yesBtn => 'Yes';
+
+  @override
+  String get noBtn => 'No';
+
+  @override
+  String get saveAndComplete => 'Save / Complete';
+
+  @override
+  String get spanCalInst =>
+      'Set linear params & test loads. Place test weight 1 on scale, press [Start].';
+
+  @override
+  String get continueBtn => 'Continue';
+
+  @override
+  String get saveAcceptDynamic => 'Save (Accept Dynamic)';
+
+  @override
+  String get startStepCal => 'Start (Initial Step)';
+
+  @override
+  String get continuePrepareRemove => 'Continue (Prepare Remove)';
+
+  @override
+  String get removeConfirm => 'Remove Confirm';
+
+  @override
+  String get addConfirm => 'Add Confirm';
+
+  @override
+  String get startNextStep => 'Start (Next Step)';
+
+  @override
+  String get calibratingLinearMsg => 'Calibrating linearity...';
+
+  @override
+  String get completeAndSave => 'Complete & Save';
+
+  @override
+  String get cancelAbort => 'Cancel / Abort';
+
+  @override
+  String get clearScalePressStartMsg =>
+      'Clear the scale platform and press Start.';
+
+  @override
+  String get diClearAlarm => 'Clear Alarm';
+
+  @override
+  String get diZero => 'Zero';
+
+  @override
+  String get diTare => 'Tare';
+
+  @override
+  String get confirmDeleteDIMsg =>
+      'Are you sure you want to delete this Digital Input mapping?';
+
+  @override
+  String get diPinConfigTitle => 'Digital Input Pin Configuration';
+
+  @override
+  String get addConfig => 'Add Config';
+
+  @override
+  String get addInputPin => 'Add Input Pin';
+
+  @override
+  String get noDiMappingsMsg => 'No digital input mappings available';
+
+  @override
+  String get hardwarePin => 'Hardware Pin';
+
+  @override
+  String hardwarePinInfo(int subId, String device, int bit) {
+    return 'SubSys ID: $subId | Device: $device | Bit: $bit';
+  }
+
+  @override
+  String unidentifiedDevicePos(int pos) {
+    return 'Position $pos (Unidentified)';
+  }
+
+  @override
+  String get diPortAllocation => 'Digital Input Port Allocation';
+
+  @override
+  String get returnBack => 'Back';
+
+  @override
+  String get selectDiIoModule => 'Select Digital IO Module (EtherCAT Pos)';
+
+  @override
+  String get defaultSubsystemId => 'Default Subsystem ID';
+
+  @override
+  String moduleOfflineOrError(int val) {
+    return '$val (Offline / Config Error)';
+  }
+
+  @override
+  String get noDiModuleScanned =>
+      'No Digital IO module found.\n(Please verify SlaveRole.digitalIo devices in Hardware Config)';
+
+  @override
+  String get unassignedNone => 'Unassigned (None)';
+
+  @override
+  String subsysPrefix(int id) {
+    return 'SubSys: $id';
+  }
+
+  @override
+  String get advancedSettingsTooltip =>
+      'Advanced Settings (Enable, Polarity, etc.)';
+
+  @override
+  String get addServoMappingTitle => 'Add Servo Output Mapping';
+
+  @override
+  String get doPortAllocation => 'Digital Output Port Allocation';
+
+  @override
+  String get selectDoIoModule => 'Select Digital IO Module (EtherCAT Pos)';
+
+  @override
+  String unidentifiedServo(int val) {
+    return '$val (Servo Not Identified)';
+  }
+
+  @override
+  String get noDoModuleScanned =>
+      'No Digital IO module found.\n(Please verify SlaveRole.digitalIo devices in Hardware Config)';
+
+  @override
+  String get advancedSettingsTooltipDO =>
+      'Advanced Settings (Enable, Active High, etc.)';
+
+  @override
+  String get noDoMappingsMsg => 'No digital output mappings available';
+
+  @override
+  String get noServoMappingsMsg => 'No servo output mappings available';
+
+  @override
+  String servoHardwareInfo(int subId, String device) {
+    return 'SubSys ID: $subId | Servo: $device';
+  }
+
+  @override
+  String loadRecipeFailedError(String error) {
+    return 'Failed to load recipes: $error';
+  }
+
+  @override
+  String get recipeNameHint => 'e.g., Material A - Fine Powder';
+
+  @override
+  String get recipeSavedSuccess => 'Recipe saved successfully';
+
+  @override
+  String recipeSaveFailedError(String error) {
+    return 'Save failed: $error';
+  }
+
+  @override
+  String get loadRecipeTitle => 'Load Recipe';
+
+  @override
+  String loadRecipeConfirmMsg(String recipeName) {
+    return 'Parameters from recipe \"$recipeName\" will overwrite current settings. Confirm?';
+  }
+
+  @override
+  String get confirmLoad => 'Confirm Load';
+
+  @override
+  String get unnamedRecipe => 'Unnamed';
+
+  @override
+  String recipeLoadedSuccess(String recipeName) {
+    return 'Recipe \"$recipeName\" loaded';
+  }
+
+  @override
+  String get loadFailed => 'Load failed';
+
+  @override
+  String loadFailedError(String error) {
+    return 'Load failed: $error';
+  }
+
+  @override
+  String get deleteRecipeTitle => 'Delete Recipe';
+
+  @override
+  String deleteRecipeConfirmMsg(String recipeName) {
+    return 'Are you sure you want to delete recipe \"$recipeName\"? This action cannot be undone.';
+  }
+
+  @override
+  String get recipeDeletedSuccess => 'Recipe deleted';
+
+  @override
+  String deleteFailedError(String error) {
+    return 'Delete failed: $error';
+  }
+
+  @override
+  String get liwMaterialRecipe => 'LIW Material Recipe';
+
+  @override
+  String get fillingMaterialRecipe => 'Filling Material Recipe';
+
+  @override
+  String get refresh => 'Refresh';
+
+  @override
+  String get saveCurrentParams => 'Save Current Parameters';
+
+  @override
+  String get noRecipesAvailableMsg =>
+      'No recipes available\nTap the button at the bottom right to save current parameters';
+
+  @override
+  String get currentlyInUse => 'In Use';
+
+  @override
+  String createdAtTime(String time) {
+    return 'Created at: $time';
+  }
+
+  @override
+  String get loadBtn => 'Load';
+
+  @override
+  String get recipeBtn => 'Recipe';
+
+  @override
+  String liwSystemIdFallback(int id) {
+    return 'LIW System (ID: $id)';
+  }
+
+  @override
+  String fillingSystemIdFallback(int id) {
+    return 'Filling System (ID: $id)';
+  }
+}
