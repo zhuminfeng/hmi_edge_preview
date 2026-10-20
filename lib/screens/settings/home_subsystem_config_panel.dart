@@ -130,6 +130,11 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
     if (oldWidget.mapping.subsystemId != widget.mapping.subsystemId ||
         oldWidget.mapping.scaleId != widget.mapping.scaleId ||
         oldWidget.mapping.appType != widget.mapping.appType) {
+      if (oldWidget.mapping.subsystemId == widget.mapping.subsystemId &&
+          oldWidget.mapping.appType != widget.mapping.appType) {
+        AppStateProvider.read(context)
+            .setActiveRecipeName(widget.mapping.subsystemId, null);
+      }
       _name.text = widget.mapping.description;
       _appType = widget.mapping.appType;
       _enabled = widget.mapping.enabled;
@@ -221,6 +226,16 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
 
   Future<void> _loadSiloSequence() async {
     final subsystemId = widget.mapping.subsystemId;
+    if (_appType != 1) {
+      setState(() {
+        _siloSequenceLoading = false;
+        _siloError = null;
+        _siloIndices = [];
+        _selectedSiloIndex = null;
+        _siloEditMode = false;
+      });
+      return;
+    }
     setState(() {
       _siloSequenceLoading = true;
       _siloError = null;
@@ -261,9 +276,14 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
     setState(() {
       _appType = appType;
       _siloEditMode = false;
+      _siloSequenceSaving = false;
       _section = 0;
     });
-    await Future.wait([_load(), _loadRecipes()]);
+    await Future.wait([
+      _load(),
+      _loadRecipes(),
+      if (appType == 1) _loadSiloSequence(),
+    ]);
   }
 
   Future<void> _loadSiloProcess(int siloIndex) async {
@@ -859,6 +879,9 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
       }
       if (ok && appType != widget.mapping.appType) {
         ok = await _platform.setSubsystemAppType(id, appType) && ok;
+        if (ok && mounted) {
+          AppStateProvider.read(context).setActiveRecipeName(id, null);
+        }
       }
       if (ok && enabled != widget.mapping.enabled) {
         ok = await _platform.setSubsystemEnabled(id, enabled) && ok;
@@ -1080,10 +1103,8 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
     if (_recipesLoading) return;
     final subsystemId = widget.mapping.subsystemId;
     final appType = _appType;
-    final activeName = AppStateProvider.read(context).getActiveRecipeName(
-          widget.mapping.subsystemId,
-        ) ??
-        widget.mapping.activeRecipe;
+    final activeName =
+        AppStateProvider.read(context).getActiveRecipeName(subsystemId) ?? '';
     if (_recipes.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('当前子系统暂无配方，调整参数后点「另存为」创建')),
@@ -1282,9 +1303,11 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
 
   // 顶部当前配方栏（对齐 SVG 的配方栏：当前配方 + 另存为 + 新建）
   Widget _buildBasicInfoBar(AppLocalizations l) {
-    final activeName = AppStateProvider.read(context)
-            .getActiveRecipeName(widget.mapping.subsystemId) ??
-        widget.mapping.activeRecipe;
+    final activeName = _appType == widget.mapping.appType
+        ? AppStateProvider.read(context)
+                .getActiveRecipeName(widget.mapping.subsystemId) ??
+            ''
+        : '';
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
       child: Container(
