@@ -1,14 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:weighing_system_elinux/weighing_system_elinux.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../providers/app_state.dart';
-import '../material_recipe_screen.dart';
-import 'calibration_screen.dart';
-import 'digital_input_settings_screen.dart';
-import 'digital_output_settings_screen.dart';
-import 'silo_config_screen.dart';
-import 'silo_sequence_config_screen.dart';
+import 'digital_input_settings_screen.dart'
+    show getDigitalInputSignalTypeName;
+import 'digital_output_settings_screen.dart' show getDigitalSignalTypeName;
+import 'subsystem_config_screen.dart' show detectSlaveRole, SlaveRole;
 
 /// 首页内嵌配置面板。
 /// Tab 按 subsystem_detail_config_screen 分类：基本 / 称重 / 滤波 / 配方 / 硬件 / 工艺。
@@ -34,6 +34,8 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
   final _platform = WeighingPlatform.instance;
 
   int _section = 0;
+  int _loadGeneration = 0;
+  int _siloProcessGeneration = 0;
   bool _loading = true;
   bool _saving = false;
   String? _error;
@@ -43,6 +45,26 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
   late int _appType;
   late bool _enabled;
   String _inputMode = 'shmem';
+  List<EthercatSlaveInfo> _ioSlaves = [];
+  DigitalInputMapConfig _digitalInputs = const DigitalInputMapConfig();
+  DigitalOutputMapConfig _digitalOutputs = const DigitalOutputMapConfig();
+  bool _ioLoading = true;
+  bool _ioSaving = false;
+  String? _ioError;
+  List<int> _siloIndices = [];
+  int? _selectedSiloIndex;
+  SiloSequenceConfig _siloSequence =
+      const SiloSequenceConfig(subsystemId: 0);
+  bool _siloSequenceLoading = true;
+  bool _siloSequenceSaving = false;
+  String? _siloError;
+  bool _siloEditMode = false;
+  bool _calibrationBusy = false;
+  StreamSubscription<WeightData>? _weightSubscription;
+  StreamSubscription<Map<String, dynamic>>? _calibrationSubscription;
+  double _liveWeight = 0;
+  String? _calibrationStatus;
+  final TextEditingController _spanLoad = TextEditingController(text: '1');
 
   ScaleParams _scale = const ScaleParams();
   ZeroConfig _zero = const ZeroConfig();
@@ -90,25 +112,51 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
     _enabled = widget.mapping.enabled;
     _load();
     _loadRecipes();
+    _loadHardware();
+    _loadSiloSequence();
+    _weightSubscription = _platform.weightStream.listen((data) {
+      if (!mounted || data.scaleId != widget.mapping.scaleId) return;
+      setState(() => _liveWeight = data.grossWeight);
+    });
+    _calibrationSubscription = _platform.calibrationEvents.listen((event) {
+      if (!mounted || event['scaleId'] != widget.mapping.scaleId) return;
+      setState(() => _calibrationStatus = event['message'] as String? ?? '');
+    });
   }
 
   @override
   void didUpdateWidget(covariant HomeSubsystemConfigPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.mapping.subsystemId != widget.mapping.subsystemId) {
+    if (oldWidget.mapping.subsystemId != widget.mapping.subsystemId ||
+        oldWidget.mapping.scaleId != widget.mapping.scaleId ||
+        oldWidget.mapping.appType != widget.mapping.appType) {
+      if (oldWidget.mapping.subsystemId == widget.mapping.subsystemId &&
+          oldWidget.mapping.appType != widget.mapping.appType) {
+        AppStateProvider.read(context)
+            .setActiveRecipeName(widget.mapping.subsystemId, null);
+      }
       _name.text = widget.mapping.description;
       _appType = widget.mapping.appType;
       _enabled = widget.mapping.enabled;
       _section = 0;
+      _siloSequenceSaving = false;
+      _calibrationBusy = false;
+      _liveWeight = 0;
+      _calibrationStatus = null;
       _collapsedGroups.clear();
       _load();
       _loadRecipes();
+      _loadHardware();
+      _loadSiloSequence();
     }
   }
 
   @override
   void dispose() {
     _name.dispose();
+    _spanLoad.dispose();
+    _weightSubscription?.cancel();
+    _calibrationSubscription?.cancel();
     super.dispose();
   }
 
@@ -116,17 +164,18 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
 
   Future<void> _loadRecipes() async {
     final subsystemId = widget.mapping.subsystemId;
-    final appType = widget.mapping.appType;
+    final appType = _appType;
     setState(() {
       _recipesLoading = true;
       _recipesError = null;
+      _recipes = [];
     });
     try {
       final all =
           await AppStateProvider.read(context).getAllMaterialRecipes(appType);
       if (!mounted ||
           widget.mapping.subsystemId != subsystemId ||
-          widget.mapping.appType != appType) return;
+          _appType != appType) return;
       setState(() {
         _recipes = all.where((recipe) {
           final value = recipe['subsystemId'];
@@ -137,7 +186,9 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
         _recipesLoading = false;
       });
     } catch (error) {
-      if (!mounted || widget.mapping.subsystemId != subsystemId) return;
+      if (!mounted ||
+          widget.mapping.subsystemId != subsystemId ||
+          _appType != appType) return;
       setState(() {
         _recipesError = '$error';
         _recipesLoading = false;
@@ -145,52 +196,581 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
     }
   }
 
-  Future<void> _load() async {
+  Future<void> _loadHardware() async {
+    final subsystemId = widget.mapping.subsystemId;
+    setState(() {
+      _ioLoading = true;
+      _ioError = null;
+    });
+    try {
+      final values = await Future.wait<Object>([
+        _platform.getDigitalInputMap(),
+        _platform.getDigitalOutputMap(),
+        _platform.scanEthercatSlaves(),
+      ]);
+      if (!mounted || widget.mapping.subsystemId != subsystemId) return;
+      setState(() {
+        _digitalInputs = values[0] as DigitalInputMapConfig;
+        _digitalOutputs = values[1] as DigitalOutputMapConfig;
+        _ioSlaves = values[2] as List<EthercatSlaveInfo>;
+        _ioLoading = false;
+      });
+    } catch (error) {
+      if (!mounted || widget.mapping.subsystemId != subsystemId) return;
+      setState(() {
+        _ioLoading = false;
+        _ioError = '$error';
+      });
+    }
+  }
+
+  Future<void> _loadSiloSequence() async {
+    final subsystemId = widget.mapping.subsystemId;
+    if (_appType != 1) {
+      setState(() {
+        _siloSequenceLoading = false;
+        _siloError = null;
+        _siloIndices = [];
+        _selectedSiloIndex = null;
+        _siloEditMode = false;
+      });
+      return;
+    }
+    setState(() {
+      _siloSequenceLoading = true;
+      _siloError = null;
+      _siloIndices = [];
+      _selectedSiloIndex = null;
+      _siloEditMode = false;
+    });
+    try {
+      final results = await Future.wait<Object>([
+        _platform.getFillingSiloProcessIndices(subsystemId),
+        _platform.getFillingSiloSequenceConfig(subsystemId),
+      ]);
+      if (!mounted || widget.mapping.subsystemId != subsystemId) return;
+      final indices = results[0] as List<int>;
+      final loadedSequence = results[1] as SiloSequenceConfig;
+      setState(() {
+        _siloIndices = indices;
+        _selectedSiloIndex = indices.isEmpty ? null : indices.first;
+        _siloSequence = SiloSequenceConfig(
+          subsystemId: subsystemId,
+          enabled: loadedSequence.enabled,
+          steps: List<SiloStep>.from(loadedSequence.steps)
+            ..sort((a, b) => a.order.compareTo(b.order)),
+        );
+        _siloSequenceLoading = false;
+      });
+    } catch (error) {
+      if (!mounted || widget.mapping.subsystemId != subsystemId) return;
+      setState(() {
+        _siloSequenceLoading = false;
+        _siloError = '$error';
+      });
+    }
+  }
+
+  Future<void> _changeAppType(int appType) async {
+    if (appType == _appType || _saving) return;
+    setState(() {
+      _appType = appType;
+      _siloEditMode = false;
+      _siloSequenceSaving = false;
+      _section = 0;
+    });
+    await Future.wait([
+      _load(),
+      _loadRecipes(),
+      if (appType == 1) _loadSiloSequence(),
+    ]);
+  }
+
+  Future<void> _loadSiloProcess(int siloIndex) async {
+    final generation = ++_siloProcessGeneration;
+    final subsystemId = widget.mapping.subsystemId;
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      _inputMode = await _platform.getInputMode();
-      final id = widget.mapping.subsystemId;
-      final scaleId = widget.mapping.scaleId;
+      final loaded = await _platform.loadFillingSiloProcessConfig(
+        subsystemId,
+        siloIndex,
+      );
+      if (!loaded) throw StateError('料仓 $siloIndex 参数加载失败');
+      final values = await Future.wait<Object>([
+        _platform.getFillingTargetConfig(subsystemId),
+        _platform.getFillingAutoTareConfig(subsystemId),
+        _platform.getFillingToleranceConfig(subsystemId),
+        _platform.getFillingSpillOptConfig(subsystemId),
+        _platform.getFillingCutoffOptConfig(subsystemId),
+        _platform.getFillingJogConfig(subsystemId),
+        _platform.getFillingRefillConfig(subsystemId),
+        _platform.getFillingEmptyingConfig(subsystemId),
+        _platform.getFillingEventsConfig(subsystemId),
+        _platform.getFillingAdvancedConfig(subsystemId),
+      ]);
+      if (!mounted ||
+          generation != _siloProcessGeneration ||
+          widget.mapping.subsystemId != subsystemId) return;
+      setState(() {
+        _selectedSiloIndex = siloIndex;
+        _fillTarget = values[0] as FillingTargetConfig;
+        _fillAutoTare = values[1] as FillingAutoTareConfig;
+        _fillTol = values[2] as FillingToleranceConfig;
+        _fillSpill = values[3] as FillingSpillOptConfig;
+        _fillCutoff = values[4] as FillingCutoffOptConfig;
+        _fillJog = values[5] as FillingJogConfig;
+        _fillRefill = values[6] as FillingRefillConfig;
+        _fillEmpty = values[7] as FillingEmptyingConfig;
+        _fillEvents = values[8] as FillingEventsConfig;
+        _fillAdv = values[9] as FillingAdvancedConfig;
+        _siloEditMode = true;
+        _loading = false;
+      });
+    } catch (error) {
+      if (!mounted ||
+          generation != _siloProcessGeneration ||
+          widget.mapping.subsystemId != subsystemId) return;
+      setState(() {
+        _loading = false;
+        _error = '加载料仓参数失败：$error';
+      });
+    }
+  }
 
-      _scale = await _platform.getScaleParams(scaleId);
-      _zero = await _platform.getZeroConfig(scaleId);
-      _tare = await _platform.getTareConfig(scaleId);
-      _filter = await _platform.getFilterStability(scaleId);
+  Future<void> _addSilo() async {
+    final subsystemId = widget.mapping.subsystemId;
+    final controller = TextEditingController();
+    final siloIndex = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('添加料仓'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(labelText: '料仓编号'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(AppLocalizations.of(context)!.cancel),
+          ),
+          FilledButton(
+            onPressed: () {
+              final value = int.tryParse(controller.text);
+              if (value != null && value >= 0) {
+                Navigator.pop(dialogContext, value);
+              }
+            },
+            child: const Text('添加'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (siloIndex == null ||
+        !mounted ||
+        widget.mapping.subsystemId != subsystemId) return;
+    if (_siloIndices.contains(siloIndex)) {
+      await _loadSiloProcess(siloIndex);
+      return;
+    }
+    final defaults = {
+      'target': const FillingTargetConfig().toMap(),
+      'autoTare': const FillingAutoTareConfig().toMap(),
+      'tolerance': const FillingToleranceConfig().toMap(),
+      'spillOpt': const FillingSpillOptConfig().toMap(),
+      'cutoffOpt': const FillingCutoffOptConfig().toMap(),
+      'jog': const FillingJogConfig().toMap(),
+      'refill': const FillingRefillConfig().toMap(),
+      'emptying': const FillingEmptyingConfig().toMap(),
+      'events': const FillingEventsConfig().toMap(),
+      'advanced': const FillingAdvancedConfig().toMap(),
+    };
+    try {
+      final ok = await _platform.saveFillingSiloProcessConfig(
+        subsystemId,
+        siloIndex,
+        defaults,
+      );
+      if (!mounted || widget.mapping.subsystemId != subsystemId) return;
+      if (!ok) throw StateError('料仓创建失败');
+      setState(() => _siloIndices = [..._siloIndices, siloIndex]..sort());
+      await _loadSiloProcess(siloIndex);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('添加料仓失败：$error')),
+      );
+    }
+  }
 
-      if (_appType == 1) {
-        _fillGen = await _platform.getFillingGeneralConfig(id);
-        _fillSys = await _platform.getFillingSystemConfig(id);
-        _fillTarget = await _platform.getFillingTargetConfig(id);
-        _fillAutoTare = await _platform.getFillingAutoTareConfig(id);
-        _fillTol = await _platform.getFillingToleranceConfig(id);
-        _fillSpill = await _platform.getFillingSpillOptConfig(id);
-        _fillCutoff = await _platform.getFillingCutoffOptConfig(id);
-        _fillJog = await _platform.getFillingJogConfig(id);
-        _fillRefill = await _platform.getFillingRefillConfig(id);
-        _fillEmpty = await _platform.getFillingEmptyingConfig(id);
-        _fillEvents = await _platform.getFillingEventsConfig(id);
-        _fillAdv = await _platform.getFillingAdvancedConfig(id);
-      } else {
-        _liwBase = await _platform.getLiwBaseConfig(id);
-        _liwSystem = await _platform.getLiwSystemConfig(id);
-        _liwSysId = await _platform.getLiwSystemIdConfig(id);
-        _liwCtrl = await _platform.getLiwControllerConfig(id);
-        _liwRefill = await _platform.getLiwRefillConfig(id);
-        _liwTarget = await _platform.getLiwTargetValuesConfig(id);
-        _liwTol = await _platform.getLiwToleranceCheckConfig(id);
-        _liwEmpty = await _platform.getLiwEmptyingConfig(id);
-        _liwWarn = await _platform.getLiwWarningConfig(id);
-        _liwFlow = await _platform.getLiwFlowMonitorConfig(id);
-        _liwAdv = await _platform.getLiwAdvancedConfig(id);
-        _liwStats = await _platform.getLiwStatsConfig(id);
+  Map<String, dynamic> _buildSiloProcessConfig() => {
+        'target': _fillTarget.toMap(),
+        'autoTare': _fillAutoTare.toMap(),
+        'tolerance': _fillTol.toMap(),
+        'spillOpt': _fillSpill.toMap(),
+        'cutoffOpt': _fillCutoff.toMap(),
+        'jog': _fillJog.toMap(),
+        'refill': _fillRefill.toMap(),
+        'emptying': _fillEmpty.toMap(),
+        'events': _fillEvents.toMap(),
+        'advanced': _fillAdv.toMap(),
+      };
+
+  Future<void> _saveHardware() async {
+    if (_ioLoading || _ioSaving) return;
+    setState(() => _ioSaving = true);
+    var ok = false;
+    try {
+      final inputs = await _platform.updateDigitalInputMap(_digitalInputs);
+      final outputs = await _platform.updateDigitalOutputMap(_digitalOutputs);
+      ok = inputs && outputs;
+      if (!ok) {
+        await _loadHardware();
       }
-      if (!mounted || widget.mapping.subsystemId != id) return;
+    } catch (error) {
+      _ioError = '$error';
+    }
+    if (!mounted) return;
+    setState(() => _ioSaving = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(ok
+            ? AppLocalizations.of(context)!.saveSuccess
+            : AppLocalizations.of(context)!.saveFailedMsg),
+        backgroundColor: ok ? Colors.green : Colors.red,
+      ),
+    );
+  }
+
+  Future<void> _saveSiloSequence() async {
+    if (_siloSequenceLoading || _siloSequenceSaving) return;
+    final subsystemId = widget.mapping.subsystemId;
+    final config = _siloSequence;
+    setState(() => _siloSequenceSaving = true);
+    var ok = false;
+    try {
+      ok = await _platform.setFillingSiloSequenceConfig(
+        subsystemId,
+        config,
+      );
+    } catch (error) {
+      _siloError = '$error';
+    }
+    if (!mounted) return;
+    setState(() => _siloSequenceSaving = false);
+    if (widget.mapping.subsystemId != subsystemId) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(ok ? '料仓顺序配置已保存' : '料仓顺序配置保存失败'),
+        backgroundColor: ok ? Colors.green : Colors.red,
+      ),
+    );
+  }
+
+  Future<void> _editSiloStep({SiloStep? current, int? index}) async {
+    final subsystemId = widget.mapping.subsystemId;
+    final target = TextEditingController(
+      text: current?.targetValue.toString() ?? '0',
+    );
+    final material = TextEditingController(text: current?.materialName ?? '');
+    final materialId = TextEditingController(text: current?.materialId ?? '');
+    var siloIndex = current?.siloIndex ??
+        (_siloIndices.isEmpty ? 0 : _siloIndices.first);
+    var enabled = current?.enabled ?? true;
+    final result = await showDialog<SiloStep>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(current == null ? '添加料仓步骤' : '编辑料仓步骤'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<int>(
+                  value: siloIndex,
+                  decoration: const InputDecoration(labelText: '料仓编号'),
+                  items: [
+                    for (final value in _siloIndices)
+                      DropdownMenuItem(value: value, child: Text('料仓 $value')),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      setDialogState(() => siloIndex = value);
+                    }
+                  },
+                ),
+                TextField(
+                  controller: target,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: '目标值 (kg)'),
+                ),
+                TextField(
+                  controller: material,
+                  decoration: const InputDecoration(labelText: '物料名称'),
+                ),
+                TextField(
+                  controller: materialId,
+                  decoration: const InputDecoration(labelText: '物料 ID'),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('启用该步骤'),
+                  value: enabled,
+                  onChanged: (value) =>
+                      setDialogState(() => enabled = value),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final targetValue = double.tryParse(target.text);
+                if (targetValue == null || targetValue < 0) return;
+                Navigator.pop(
+                  dialogContext,
+                  SiloStep(
+                    siloIndex: siloIndex,
+                    order: index ?? _siloSequence.steps.length,
+                    targetValue: targetValue,
+                    materialName: material.text.trim(),
+                    materialId: materialId.text.trim(),
+                    enabled: enabled,
+                  ),
+                );
+              },
+              child: const Text('确定'),
+            ),
+          ],
+        ),
+      ),
+    );
+    target.dispose();
+    material.dispose();
+    materialId.dispose();
+    if (result == null ||
+        !mounted ||
+        widget.mapping.subsystemId != subsystemId) return;
+    final steps = List<SiloStep>.from(_siloSequence.steps);
+    if (index == null) {
+      steps.add(result);
+    } else {
+      steps[index] = result;
+    }
+    setState(() {
+      _siloSequence = SiloSequenceConfig(
+        subsystemId: widget.mapping.subsystemId,
+        enabled: _siloSequence.enabled,
+        steps: steps,
+      );
+    });
+  }
+
+  Future<void> _runCalibration({required bool span}) async {
+    if (_calibrationBusy || _loading) return;
+    final scaleId = widget.mapping.scaleId;
+    final l = AppLocalizations.of(context)!;
+    final load = double.tryParse(_spanLoad.text);
+    if (span && (load == null || load <= 0)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请输入大于零的测试砝码重量')),
+      );
+      return;
+    }
+    setState(() {
+      _calibrationBusy = true;
+      _calibrationStatus = span ? l.calSpanInProgress : l.calZeroInProgress;
+    });
+    try {
+      final ok = span
+          ? await _platform.triggerCalSpan(scaleId, 0, [load!])
+          : await _platform.triggerCalZero(scaleId);
+      if (!mounted || widget.mapping.scaleId != scaleId) return;
+      if (!ok) {
+        setState(() => _calibrationStatus = l.calSaveFailed);
+      }
+    } catch (error) {
+      if (mounted && widget.mapping.scaleId == scaleId) {
+        setState(() => _calibrationStatus = '$error');
+      }
+    } finally {
+      if (mounted && widget.mapping.scaleId == scaleId) {
+        setState(() => _calibrationBusy = false);
+      }
+    }
+  }
+
+  Future<void> _saveCalibration() async {
+    if (_calibrationBusy || _loading) return;
+    final scaleId = widget.mapping.scaleId;
+    final l = AppLocalizations.of(context)!;
+    setState(() => _calibrationBusy = true);
+    try {
+      final params = await _platform.getScaleParams(scaleId);
+      final saved = await _platform.updateScaleParams(scaleId, params);
+      final ok = saved && await _platform.triggerSaveCalibration(scaleId);
+      if (!mounted || widget.mapping.scaleId != scaleId) return;
+      setState(() => _calibrationStatus = ok ? l.calSavedSuccess : l.calSaveFailed);
+    } catch (error) {
+      if (mounted && widget.mapping.scaleId == scaleId) {
+        setState(() => _calibrationStatus = '$error');
+      }
+    } finally {
+      if (mounted && widget.mapping.scaleId == scaleId) {
+        setState(() => _calibrationBusy = false);
+      }
+    }
+  }
+
+  Future<void> _addCalibrationLoad() async {
+    if (_calibrationBusy || _loading) return;
+    final scaleId = widget.mapping.scaleId;
+    setState(() => _calibrationBusy = true);
+    try {
+      final ok = await _platform.triggerCalibrationAddLoad(scaleId);
+      if (!mounted || widget.mapping.scaleId != scaleId) return;
+      if (!ok) {
+        setState(() => _calibrationStatus = '确认加载失败');
+      }
+    } catch (error) {
+      if (mounted && widget.mapping.scaleId == scaleId) {
+        setState(() => _calibrationStatus = '$error');
+      }
+    } finally {
+      if (mounted && widget.mapping.scaleId == scaleId) {
+        setState(() => _calibrationBusy = false);
+      }
+    }
+  }
+
+  Future<void> _acceptDynamicCalibration(bool accept) async {
+    if (_calibrationBusy || _loading) return;
+    final scaleId = widget.mapping.scaleId;
+    setState(() => _calibrationBusy = true);
+    try {
+      final ok = await _platform.acceptDynamicCalibration(scaleId, accept);
+      if (!mounted || widget.mapping.scaleId != scaleId) return;
+      if (!ok) {
+        setState(() => _calibrationStatus = '动态校准确认失败');
+      }
+    } catch (error) {
+      if (mounted && widget.mapping.scaleId == scaleId) {
+        setState(() => _calibrationStatus = '$error');
+      }
+    } finally {
+      if (mounted && widget.mapping.scaleId == scaleId) {
+        setState(() => _calibrationBusy = false);
+      }
+    }
+  }
+
+  Future<void> _load() async {
+    final generation = ++_loadGeneration;
+    _siloProcessGeneration++;
+    final id = widget.mapping.subsystemId;
+    final scaleId = widget.mapping.scaleId;
+    final appType = _appType;
+    setState(() {
+      _loading = true;
+      _error = null;
+      _siloEditMode = false;
+    });
+    try {
+      final inputMode = await _platform.getInputMode();
+      final scale = await _platform.getScaleParams(scaleId);
+      final zero = await _platform.getZeroConfig(scaleId);
+      final tare = await _platform.getTareConfig(scaleId);
+      final filter = await _platform.getFilterStability(scaleId);
+
+      if (appType == 1) {
+        final fillGen = await _platform.getFillingGeneralConfig(id);
+        final fillSys = await _platform.getFillingSystemConfig(id);
+        final fillTarget = await _platform.getFillingTargetConfig(id);
+        final fillAutoTare = await _platform.getFillingAutoTareConfig(id);
+        final fillTol = await _platform.getFillingToleranceConfig(id);
+        final fillSpill = await _platform.getFillingSpillOptConfig(id);
+        final fillCutoff = await _platform.getFillingCutoffOptConfig(id);
+        final fillJog = await _platform.getFillingJogConfig(id);
+        final fillRefill = await _platform.getFillingRefillConfig(id);
+        final fillEmpty = await _platform.getFillingEmptyingConfig(id);
+        final fillEvents = await _platform.getFillingEventsConfig(id);
+        final fillAdv = await _platform.getFillingAdvancedConfig(id);
+        if (!mounted ||
+            generation != _loadGeneration ||
+            widget.mapping.subsystemId != id ||
+            widget.mapping.scaleId != scaleId ||
+            _appType != appType) {
+          return;
+        }
+        _inputMode = inputMode;
+        _scale = scale;
+        _zero = zero;
+        _tare = tare;
+        _filter = filter;
+        _fillGen = fillGen;
+        _fillSys = fillSys;
+        _fillTarget = fillTarget;
+        _fillAutoTare = fillAutoTare;
+        _fillTol = fillTol;
+        _fillSpill = fillSpill;
+        _fillCutoff = fillCutoff;
+        _fillJog = fillJog;
+        _fillRefill = fillRefill;
+        _fillEmpty = fillEmpty;
+        _fillEvents = fillEvents;
+        _fillAdv = fillAdv;
+      } else {
+        final liwBase = await _platform.getLiwBaseConfig(id);
+        final liwSystem = await _platform.getLiwSystemConfig(id);
+        final liwSysId = await _platform.getLiwSystemIdConfig(id);
+        final liwCtrl = await _platform.getLiwControllerConfig(id);
+        final liwRefill = await _platform.getLiwRefillConfig(id);
+        final liwTarget = await _platform.getLiwTargetValuesConfig(id);
+        final liwTol = await _platform.getLiwToleranceCheckConfig(id);
+        final liwEmpty = await _platform.getLiwEmptyingConfig(id);
+        final liwWarn = await _platform.getLiwWarningConfig(id);
+        final liwFlow = await _platform.getLiwFlowMonitorConfig(id);
+        final liwAdv = await _platform.getLiwAdvancedConfig(id);
+        final liwStats = await _platform.getLiwStatsConfig(id);
+        if (!mounted ||
+            generation != _loadGeneration ||
+            widget.mapping.subsystemId != id ||
+            widget.mapping.scaleId != scaleId ||
+            _appType != appType) {
+          return;
+        }
+        _inputMode = inputMode;
+        _scale = scale;
+        _zero = zero;
+        _tare = tare;
+        _filter = filter;
+        _liwBase = liwBase;
+        _liwSystem = liwSystem;
+        _liwSysId = liwSysId;
+        _liwCtrl = liwCtrl;
+        _liwRefill = liwRefill;
+        _liwTarget = liwTarget;
+        _liwTol = liwTol;
+        _liwEmpty = liwEmpty;
+        _liwWarn = liwWarn;
+        _liwFlow = liwFlow;
+        _liwAdv = liwAdv;
+        _liwStats = liwStats;
+      }
+      if (!mounted || generation != _loadGeneration) return;
       setState(() => _loading = false);
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || generation != _loadGeneration) return;
       setState(() {
         _loading = false;
         _error = '$e';
@@ -198,73 +778,128 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
     }
   }
 
-  Future<void> _save() async {
+  Future<bool> _save() async {
     final l = AppLocalizations.of(context)!;
+    if (_loading || _saving || _error != null) return false;
     setState(() => _saving = true);
     final id = widget.mapping.subsystemId;
     final scaleId = widget.mapping.scaleId;
+    final appType = _appType;
+    final name = _name.text.trim();
+    final enabled = _enabled;
+    final scale = _scale;
+    final zero = _zero;
+    final tare = _tare;
+    final filter = _filter;
+    final siloEditMode = _siloEditMode;
+    final siloIndex = _selectedSiloIndex;
+    final siloProcessConfig =
+        siloEditMode ? _buildSiloProcessConfig() : null;
+    final fillingConfigs = (
+      general: _fillGen,
+      system: _fillSys,
+      target: _fillTarget,
+      autoTare: _fillAutoTare,
+      tolerance: _fillTol,
+      spill: _fillSpill,
+      cutoff: _fillCutoff,
+      jog: _fillJog,
+      refill: _fillRefill,
+      emptying: _fillEmpty,
+      events: _fillEvents,
+      advanced: _fillAdv,
+    );
+    final liwConfigs = (
+      base: _liwBase,
+      system: _liwSystem,
+      systemId: _liwSysId,
+      controller: _liwCtrl,
+      refill: _liwRefill,
+      target: _liwTarget,
+      tolerance: _liwTol,
+      emptying: _liwEmpty,
+      warning: _liwWarn,
+      flow: _liwFlow,
+      advanced: _liwAdv,
+      stats: _liwStats,
+    );
     var ok = true;
     try {
-      ok = await _platform.updateScaleParams(scaleId, _scale) && ok;
-      ok = await _platform.updateZeroConfig(scaleId, _zero) && ok;
-      ok = await _platform.updateTareConfig(scaleId, _tare) && ok;
-      ok = await _platform.updateFilterStability(scaleId, _filter) && ok;
+      ok = await _platform.updateScaleParams(scaleId, scale) && ok;
+      ok = await _platform.updateZeroConfig(scaleId, zero) && ok;
+      ok = await _platform.updateTareConfig(scaleId, tare) && ok;
+      ok = await _platform.updateFilterStability(scaleId, filter) && ok;
 
-      if (_appType == 1) {
-        ok = await _platform.updateFillingGeneralConfig(id, _fillGen) && ok;
-        ok = await _platform.updateFillingSystemConfig(id, _fillSys) && ok;
-        ok = await _platform.updateFillingTargetConfig(id, _fillTarget) && ok;
-        ok = await _platform.updateFillingAutoTareConfig(id, _fillAutoTare) &&
+      if (appType == 1 && siloEditMode && siloIndex != null) {
+        ok = await _platform.saveFillingSiloProcessConfig(
+              id,
+              siloIndex,
+              siloProcessConfig!,
+            ) &&
             ok;
-        ok = await _platform.updateFillingToleranceConfig(id, _fillTol) && ok;
-        ok = await _platform.updateFillingSpillOptConfig(id, _fillSpill) && ok;
+      } else if (appType == 1) {
+        ok = await _platform.updateFillingGeneralConfig(id, fillingConfigs.general) && ok;
+        ok = await _platform.updateFillingSystemConfig(id, fillingConfigs.system) && ok;
+        ok = await _platform.updateFillingTargetConfig(id, fillingConfigs.target) && ok;
+        ok = await _platform.updateFillingAutoTareConfig(id, fillingConfigs.autoTare) &&
+            ok;
+        ok = await _platform.updateFillingToleranceConfig(id, fillingConfigs.tolerance) && ok;
+        ok = await _platform.updateFillingSpillOptConfig(id, fillingConfigs.spill) && ok;
         ok =
-            await _platform.updateFillingCutoffOptConfig(id, _fillCutoff) && ok;
-        ok = await _platform.updateFillingJogConfig(id, _fillJog) && ok;
-        ok = await _platform.updateFillingRefillConfig(id, _fillRefill) && ok;
-        ok = await _platform.updateFillingEmptyingConfig(id, _fillEmpty) && ok;
-        ok = await _platform.updateFillingEventsConfig(id, _fillEvents) && ok;
-        ok = await _platform.updateFillingAdvancedConfig(id, _fillAdv) && ok;
+            await _platform.updateFillingCutoffOptConfig(id, fillingConfigs.cutoff) && ok;
+        ok = await _platform.updateFillingJogConfig(id, fillingConfigs.jog) && ok;
+        ok = await _platform.updateFillingRefillConfig(id, fillingConfigs.refill) && ok;
+        ok = await _platform.updateFillingEmptyingConfig(id, fillingConfigs.emptying) && ok;
+        ok = await _platform.updateFillingEventsConfig(id, fillingConfigs.events) && ok;
+        ok = await _platform.updateFillingAdvancedConfig(id, fillingConfigs.advanced) && ok;
       } else {
-        ok = await _platform.updateLiwBaseConfig(id, _liwBase) && ok;
-        ok = await _platform.updateLiwSystemConfig(id, _liwSystem) && ok;
-        ok = await _platform.updateLiwSystemIdConfig(id, _liwSysId) && ok;
-        ok = await _platform.updateLiwControllerConfig(id, _liwCtrl) && ok;
-        ok = await _platform.updateLiwRefillConfig(id, _liwRefill) && ok;
-        ok = await _platform.updateLiwTargetValuesConfig(id, _liwTarget) && ok;
-        ok = await _platform.updateLiwToleranceCheckConfig(id, _liwTol) && ok;
-        ok = await _platform.updateLiwEmptyingConfig(id, _liwEmpty) && ok;
-        ok = await _platform.updateLiwWarningConfig(id, _liwWarn) && ok;
-        ok = await _platform.updateLiwFlowMonitorConfig(id, _liwFlow) && ok;
-        ok = await _platform.updateLiwAdvancedConfig(id, _liwAdv) && ok;
-        ok = await _platform.updateLiwStatsConfig(id, _liwStats) && ok;
+        ok = await _platform.updateLiwBaseConfig(id, liwConfigs.base) && ok;
+        ok = await _platform.updateLiwSystemConfig(id, liwConfigs.system) && ok;
+        ok = await _platform.updateLiwSystemIdConfig(id, liwConfigs.systemId) && ok;
+        ok = await _platform.updateLiwControllerConfig(id, liwConfigs.controller) && ok;
+        ok = await _platform.updateLiwRefillConfig(id, liwConfigs.refill) && ok;
+        ok = await _platform.updateLiwTargetValuesConfig(id, liwConfigs.target) && ok;
+        ok = await _platform.updateLiwToleranceCheckConfig(id, liwConfigs.tolerance) && ok;
+        ok = await _platform.updateLiwEmptyingConfig(id, liwConfigs.emptying) && ok;
+        ok = await _platform.updateLiwWarningConfig(id, liwConfigs.warning) && ok;
+        ok = await _platform.updateLiwFlowMonitorConfig(id, liwConfigs.flow) && ok;
+        ok = await _platform.updateLiwAdvancedConfig(id, liwConfigs.advanced) && ok;
+        ok = await _platform.updateLiwStatsConfig(id, liwConfigs.stats) && ok;
       }
-      final name = _name.text.trim();
-      if (name.isNotEmpty && name != widget.mapping.description) {
+      if (ok &&
+          name.isNotEmpty &&
+          name != widget.mapping.description) {
         ok = await _platform.addSubsystemMapping(
               id,
               name,
               scaleId: scaleId,
-              appType: _appType,
+              appType: appType,
             ) &&
             ok;
       }
-      if (_appType != widget.mapping.appType) {
-        ok = await _platform.setSubsystemAppType(id, _appType) && ok;
+      if (ok && appType != widget.mapping.appType) {
+        ok = await _platform.setSubsystemAppType(id, appType) && ok;
+        if (ok && mounted) {
+          AppStateProvider.read(context).setActiveRecipeName(id, null);
+        }
       }
-      if (_enabled != widget.mapping.enabled) {
-        ok = await _platform.setSubsystemEnabled(id, _enabled) && ok;
+      if (ok && enabled != widget.mapping.enabled) {
+        ok = await _platform.setSubsystemEnabled(id, enabled) && ok;
       }
-      if (mounted) await AppStateProvider.of(context).refreshSubsystems();
+      if (ok && mounted) await AppStateProvider.of(context).refreshSubsystems();
     } catch (e) {
       ok = false;
       _error = '$e';
     }
-    if (!mounted) return;
+    if (!mounted) return false;
     setState(() => _saving = false);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(ok ? l.saveSuccess : l.saveFailedMsg)),
     );
+    if (ok && appType != widget.mapping.appType) {
+      await Future.wait([_load(), _loadRecipes()]);
+    }
+    return ok;
   }
 
   // ── 配方操作 ────────────────────────────────────────────────
@@ -273,13 +908,15 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
     Map<String, dynamic> recipe, {
     required bool editAfterLoad,
   }) async {
-    final id = recipe['recipeId'];
+    final id = recipe['recipeId'] ?? recipe['id'];
     if (id is! int) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('配方 ID 无效，无法加载')),
       );
       return;
     }
+    final subsystemId = widget.mapping.subsystemId;
+    final appType = _appType;
     final name = recipe['name'] as String? ?? '未命名';
     final confirmed = await showDialog<bool>(
       context: context,
@@ -301,10 +938,10 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
-
-    final subsystemId = widget.mapping.subsystemId;
-    final appType = widget.mapping.appType;
+    if (confirmed != true ||
+        !mounted ||
+        widget.mapping.subsystemId != subsystemId ||
+        _appType != appType) return;
     try {
       final ok = await AppStateProvider.read(context).loadMaterialRecipe(
         subsystemId,
@@ -312,7 +949,9 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
         name,
         appType,
       );
-      if (!mounted || widget.mapping.subsystemId != subsystemId) return;
+      if (!mounted ||
+          widget.mapping.subsystemId != subsystemId ||
+          _appType != appType) return;
       if (!ok) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('加载配方「$name」失败')),
@@ -334,6 +973,8 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
   }
 
   Future<void> _deleteRecipe(Map<String, dynamic> recipe) async {
+    final subsystemId = widget.mapping.subsystemId;
+    final appType = _appType;
     final name = recipe['name'] as String? ?? '未命名';
     final confirmed = await showDialog<bool>(
       context: context,
@@ -353,17 +994,22 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
+    if (confirmed != true ||
+        !mounted ||
+        widget.mapping.subsystemId != subsystemId ||
+        _appType != appType) return;
 
     final state = AppStateProvider.read(context);
     final ok = await state.deleteMaterialRecipe(
-      recipe['recipeId'] as int,
-      _appType,
+      (recipe['recipeId'] ?? recipe['id']) as int,
+      appType,
     );
-    if (!mounted) return;
+    if (!mounted ||
+        widget.mapping.subsystemId != subsystemId ||
+        _appType != appType) return;
     if (ok) {
-      if (state.getActiveRecipeName(widget.mapping.subsystemId) == name) {
-        state.setActiveRecipeName(widget.mapping.subsystemId, null);
+      if (state.getActiveRecipeName(subsystemId) == name) {
+        state.setActiveRecipeName(subsystemId, null);
       }
       await _loadRecipes();
       if (mounted) {
@@ -375,8 +1021,10 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
   }
 
   Future<void> _saveAsRecipeDialog() async {
+    final subsystemId = widget.mapping.subsystemId;
+    final appType = _appType;
     final activeName = AppStateProvider.read(context)
-            .getActiveRecipeName(widget.mapping.subsystemId) ??
+            .getActiveRecipeName(subsystemId) ??
         '';
     final controller = TextEditingController(text: activeName);
     final name = await showDialog<String>(
@@ -408,21 +1056,36 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
       ),
     );
     controller.dispose();
-    if (name == null || !mounted) return;
-
-    await _save();
+    if (name == null ||
+        !mounted ||
+        widget.mapping.subsystemId != subsystemId ||
+        _appType != appType) return;
+    if (!await _save() ||
+        !mounted ||
+        widget.mapping.subsystemId != subsystemId ||
+        _appType != appType) {
+      return;
+    }
     if (!mounted) return;
 
     final state = AppStateProvider.read(context);
     final ok = await state.saveMaterialRecipe(
-      widget.mapping.subsystemId,
+      subsystemId,
       name,
-      _appType,
+      appType,
     );
-    if (!mounted) return;
+    if (!mounted ||
+        widget.mapping.subsystemId != subsystemId ||
+        _appType != appType) return;
 
     if (ok) {
-      await state.setSubsystemActiveRecipe(widget.mapping.subsystemId, name);
+      final activated = await state.setSubsystemActiveRecipe(subsystemId, name);
+      if (!activated) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('配方已保存，但激活失败')),
+        );
+        return;
+      }
       await _loadRecipes();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -438,10 +1101,10 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
 
   Future<void> _showRecipePicker() async {
     if (_recipesLoading) return;
-    final activeName = AppStateProvider.read(context).getActiveRecipeName(
-          widget.mapping.subsystemId,
-        ) ??
-        widget.mapping.activeRecipe;
+    final subsystemId = widget.mapping.subsystemId;
+    final appType = _appType;
+    final activeName =
+        AppStateProvider.read(context).getActiveRecipeName(subsystemId) ?? '';
     if (_recipes.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('当前子系统暂无配方，调整参数后点「另存为」创建')),
@@ -492,25 +1155,13 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
             onPressed: () => Navigator.pop(ctx),
             child: const Text('关闭'),
           ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => MaterialRecipeScreen(
-                    appType: _appType,
-                    subsystemId: widget.mapping.subsystemId,
-                  ),
-                ),
-              ).then((_) => _loadRecipes());
-            },
-            child: const Text('配方库'),
-          ),
         ],
       ),
     );
-    if (picked != null && mounted) {
+    if (picked != null &&
+        mounted &&
+        widget.mapping.subsystemId == subsystemId &&
+        _appType == appType) {
       await _activateRecipe(picked, editAfterLoad: false);
     }
   }
@@ -560,10 +1211,13 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
                           style: const TextStyle(color: Color(0xFFFF8F85)),
                         ),
                       )
-                    : SingleChildScrollView(
-                        key: ValueKey('$_section-$_appType'),
-                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
-                        child: _sectionBody(l),
+                    : IgnorePointer(
+                        ignoring: _saving,
+                        child: SingleChildScrollView(
+                          key: ValueKey('$_section-$_appType'),
+                          padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+                          child: _sectionBody(l),
+                        ),
                       ),
           ),
         ],
@@ -601,7 +1255,7 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
                   color: Color(0xFF91ABBA), size: 18),
             ),
           TextButton.icon(
-            onPressed: _saving || _loading ? null : _save,
+            onPressed: _saving || _loading || _error != null ? null : _save,
             icon: _saving
                 ? const SizedBox(
                     width: 14,
@@ -649,9 +1303,11 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
 
   // 顶部当前配方栏（对齐 SVG 的配方栏：当前配方 + 另存为 + 新建）
   Widget _buildBasicInfoBar(AppLocalizations l) {
-    final activeName = AppStateProvider.read(context)
-            .getActiveRecipeName(widget.mapping.subsystemId) ??
-        widget.mapping.activeRecipe;
+    final activeName = _appType == widget.mapping.appType
+        ? AppStateProvider.read(context)
+                .getActiveRecipeName(widget.mapping.subsystemId) ??
+            ''
+        : '';
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
       child: Container(
@@ -819,14 +1475,23 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
             onChanged: (_) => setState(() {}),
           ),
         ),
-        _dropRow<int>(
-          '应用类型',
-          _appType,
-          [
-            DropdownMenuItem(value: 0, child: Text(l.lossInWeight)),
-            DropdownMenuItem(value: 1, child: Text(l.filling)),
-          ],
-          (v) => setState(() => _appType = v ?? 0),
+        _paramRow(
+          label: '应用类型',
+          control: DropdownButtonFormField<int>(
+            value: _appType,
+            dropdownColor: const Color(0xFF153748),
+            style: const TextStyle(color: Color(0xFFEFFAFF), fontSize: 13),
+            decoration: _deco(),
+            items: [
+              DropdownMenuItem(value: 0, child: Text(l.lossInWeight)),
+              DropdownMenuItem(value: 1, child: Text(l.filling)),
+            ],
+            onChanged: _saving || _loading
+                ? null
+                : (value) {
+                    if (value != null) _changeAppType(value);
+                  },
+          ),
         ),
         _paramRow(
           label: l.inputModeLabel,
@@ -868,7 +1533,7 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
           children: [
             _dropRow<int>(
               l.unit,
-              _scale.primaryUnit.clamp(0, units.length - 1),
+              _scale.primaryUnit.clamp(0, units.length - 1).toInt(),
               [
                 for (var i = 0; i < units.length; i++)
                   DropdownMenuItem(value: i, child: Text(units[i])),
@@ -897,7 +1562,7 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
           children: [
             _dropRow<int>(
               l.autoZeroTracking,
-              _zero.autoZeroMode.clamp(0, autoZeroLabels.length - 1),
+              _zero.autoZeroMode.clamp(0, autoZeroLabels.length - 1).toInt(),
               [
                 for (var i = 0; i < autoZeroLabels.length; i++)
                   DropdownMenuItem(value: i, child: Text(autoZeroLabels[i])),
@@ -912,7 +1577,7 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
             }),
             _dropRow<int>(
               l.powerUpZero,
-              _zero.powerUpZero.clamp(0, powerUpLabels.length - 1),
+              _zero.powerUpZero.clamp(0, powerUpLabels.length - 1).toInt(),
               [
                 for (var i = 0; i < powerUpLabels.length; i++)
                   DropdownMenuItem(value: i, child: Text(powerUpLabels[i])),
@@ -947,19 +1612,95 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
             ),
           ],
         ),
-        _EntryCard(
-          icon: Icons.tune,
+        _group(
           title: l.calibration,
-          subtitle: '${l.calZero} / ${l.calSpan} / ${l.calStep}',
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => CalibrationScreen(
-                subsystemId: widget.mapping.subsystemId,
-                scaleId: widget.mapping.scaleId,
-              ),
+          subtitle: '${l.calZero} / ${l.calSpan}',
+          count: 4,
+          groupKey: 'scale-calibration',
+          initiallyExpanded: false,
+          children: [
+            _paramRow(
+              label: '实时重量',
+              control: _readonly(_liveWeight.toStringAsFixed(2)),
+              showScope: false,
             ),
-          ),
+            _paramRow(
+              label: l.calSpan,
+              control: TextFormField(
+                controller: _spanLoad,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                style: const TextStyle(color: Color(0xFFEFFAFF), fontSize: 13),
+                decoration: _deco(),
+              ),
+              showScope: false,
+            ),
+            if (_calibrationStatus?.isNotEmpty == true)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Text(
+                  _calibrationStatus!,
+                  style: const TextStyle(color: Color(0xFF62E3E5)),
+                ),
+              ),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton(
+                  onPressed: _calibrationBusy
+                      ? null
+                      : () => _runCalibration(span: false),
+                  child: Text(l.calZero),
+                ),
+                OutlinedButton(
+                  onPressed: _calibrationBusy
+                      ? null
+                      : () => _runCalibration(span: true),
+                  child: Text(l.calSpan),
+                ),
+                OutlinedButton(
+                  onPressed: _calibrationBusy ? null : _addCalibrationLoad,
+                  child: const Text('确认加载'),
+                ),
+                OutlinedButton(
+                  onPressed: _calibrationBusy
+                      ? null
+                      : () async {
+                          try {
+                            final ok = await _platform
+                                .triggerAbortCalibration(widget.mapping.scaleId);
+                            if (mounted) {
+                              setState(() => _calibrationStatus =
+                                  ok ? l.calAbortedMsg : l.calFailedMsg(''));
+                            }
+                          } catch (error) {
+                            if (mounted) {
+                              setState(() => _calibrationStatus = '$error');
+                            }
+                          }
+                        },
+                  child: Text(l.cancel),
+                ),
+                OutlinedButton(
+                  onPressed: _calibrationBusy
+                      ? null
+                      : () => _acceptDynamicCalibration(true),
+                  child: const Text('接受动态校准'),
+                ),
+                OutlinedButton(
+                  onPressed: _calibrationBusy
+                      ? null
+                      : () => _acceptDynamicCalibration(false),
+                  child: const Text('拒绝动态校准'),
+                ),
+                FilledButton(
+                  onPressed: _calibrationBusy ? null : _saveCalibration,
+                  child: Text(l.save),
+                ),
+              ],
+            ),
+          ],
         ),
       ],
     );
@@ -1015,7 +1756,7 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
           children: [
             _dropRow<int>(
               l.lowPassFilter,
-              _filter.lowPassLevel.clamp(0, 3),
+              _filter.lowPassLevel.clamp(0, 3).toInt(),
               [
                 for (var i = 0; i < lpLabels.length; i++)
                   DropdownMenuItem(value: i, child: Text(lpLabels[i])),
@@ -1136,6 +1877,77 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
           ),
         ),
         const SizedBox(height: 10),
+        _group(
+          title: '当前子系统配方',
+          subtitle: '加载后在下方直接编辑参数，保存可另存为新配方',
+          count: _recipes.length,
+          groupKey: 'recipe-library',
+          initiallyExpanded: true,
+          children: [
+            if (_recipesLoading)
+              const Center(child: CircularProgressIndicator())
+            else if (_recipesError != null)
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _recipesError!,
+                      style: const TextStyle(color: Color(0xFFFF8F85)),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: l.refresh,
+                    onPressed: _loadRecipes,
+                    icon: const Icon(Icons.refresh),
+                  ),
+                ],
+              )
+            else if (_recipes.isEmpty)
+              _readonly('当前子系统暂无配方，可调整参数后使用“另存为”创建')
+            else
+              for (final recipe in _recipes)
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    recipe['name'] as String? ?? '未命名',
+                    style: const TextStyle(color: Color(0xFFEFFAFF)),
+                  ),
+                  subtitle: Text(
+                    AppStateProvider.read(context)
+                                .getActiveRecipeName(widget.mapping.subsystemId) ==
+                            recipe['name']
+                        ? '使用中'
+                        : '未加载',
+                    style: const TextStyle(color: Color(0xFF91ABBA)),
+                  ),
+                  trailing: Wrap(
+                    children: [
+                      IconButton(
+                        tooltip: '加载配方',
+                        onPressed: () =>
+                            _activateRecipe(recipe, editAfterLoad: true),
+                        icon: const Icon(Icons.download_outlined, size: 18),
+                      ),
+                      IconButton(
+                        tooltip: l.delete,
+                        onPressed: () => _deleteRecipe(recipe),
+                        icon: const Icon(Icons.delete_outline, size: 18),
+                      ),
+                    ],
+                  ),
+                ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: _recipesLoading ? null : _showRecipePicker,
+                icon: const Icon(Icons.refresh, size: 16),
+                label: const Text('从配方列表加载'),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
         if (_appType == 1)
           ..._fillingRecipeGroups(l)
         else
@@ -2210,33 +3022,643 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
 
   // ── 4. 硬件 ────────────────────────────────────────────────
 
+  List<DigitalInputBinding> get _subsystemInputBindings => _digitalInputs
+      .bindings
+      .where((binding) => binding.subsystemId == widget.mapping.subsystemId)
+      .toList();
+
+  List<DigitalOutputBinding> get _subsystemOutputBindings => _digitalOutputs
+      .bindings
+      .where((binding) => binding.subsystemId == widget.mapping.subsystemId)
+      .toList();
+
+  List<ServoOutputBinding> get _subsystemServoBindings => _digitalOutputs
+      .servoBindings
+      .where((binding) => binding.subsystemId == widget.mapping.subsystemId)
+      .toList();
+
+  List<int> _devicePositions(int selected, {required bool servo}) {
+    final role = servo ? SlaveRole.servo : SlaveRole.digitalIo;
+    final positions = _ioSlaves
+        .where((slave) =>
+            detectSlaveRole(slave.vendorId, slave.productCode) == role)
+        .map((slave) => slave.position)
+        .toSet();
+    positions.add(selected);
+    return positions.toList()..sort();
+  }
+
+  void _replaceInput(
+    DigitalInputBinding previous,
+    DigitalInputBinding replacement,
+  ) {
+    final bindings = List<DigitalInputBinding>.from(_digitalInputs.bindings);
+    final index = bindings.indexOf(previous);
+    if (index < 0) return;
+    bindings[index] = replacement;
+    setState(() => _digitalInputs = DigitalInputMapConfig(
+          version: _digitalInputs.version,
+          bindings: bindings,
+        ));
+  }
+
+  void _replaceOutput(
+    DigitalOutputBinding previous,
+    DigitalOutputBinding replacement,
+  ) {
+    final bindings = List<DigitalOutputBinding>.from(_digitalOutputs.bindings);
+    final index = bindings.indexOf(previous);
+    if (index < 0) return;
+    bindings[index] = replacement;
+    setState(() => _digitalOutputs = DigitalOutputMapConfig(
+          version: _digitalOutputs.version,
+          bindings: bindings,
+          servoBindings: _digitalOutputs.servoBindings,
+        ));
+  }
+
+  void _replaceServo(
+    ServoOutputBinding previous,
+    ServoOutputBinding replacement,
+  ) {
+    final bindings = List<ServoOutputBinding>.from(
+      _digitalOutputs.servoBindings,
+    );
+    final index = bindings.indexOf(previous);
+    if (index < 0) return;
+    bindings[index] = replacement;
+    setState(() => _digitalOutputs = DigitalOutputMapConfig(
+          version: _digitalOutputs.version,
+          bindings: _digitalOutputs.bindings,
+          servoBindings: bindings,
+        ));
+  }
+
+  void _addInputBinding() {
+    final positions = _ioSlaves
+        .where((slave) =>
+            detectSlaveRole(slave.vendorId, slave.productCode) ==
+            SlaveRole.digitalIo)
+        .map((slave) => slave.position)
+        .toList();
+    if (positions.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context)!.noDevicesFound)),
+      );
+      return;
+    }
+    final position = positions.first;
+    setState(() => _digitalInputs = DigitalInputMapConfig(
+          version: _digitalInputs.version,
+          bindings: [
+            ..._digitalInputs.bindings,
+            DigitalInputBinding(
+              subsystemId: widget.mapping.subsystemId,
+              ioPos: position,
+              bitIndex: 0,
+              signal: DigitalInputSignalType.startSignal,
+            ),
+          ],
+        ));
+  }
+
+  void _addOutputBinding() {
+    final positions = _ioSlaves
+        .where((slave) =>
+            detectSlaveRole(slave.vendorId, slave.productCode) ==
+            SlaveRole.digitalIo)
+        .map((slave) => slave.position)
+        .toList();
+    if (positions.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context)!.noDevicesFound)),
+      );
+      return;
+    }
+    final position = positions.first;
+    setState(() => _digitalOutputs = DigitalOutputMapConfig(
+          version: _digitalOutputs.version,
+          bindings: [
+            ..._digitalOutputs.bindings,
+            DigitalOutputBinding(
+              subsystemId: widget.mapping.subsystemId,
+              ioPos: position,
+              bitIndex: 0,
+              signal: DigitalSignalType.feedFast,
+            ),
+          ],
+          servoBindings: _digitalOutputs.servoBindings,
+        ));
+  }
+
+  void _addServoBinding() {
+    final positions = _ioSlaves
+        .where((slave) =>
+            detectSlaveRole(slave.vendorId, slave.productCode) ==
+            SlaveRole.servo)
+        .map((slave) => slave.position)
+        .toList();
+    if (positions.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context)!.noDevicesFound)),
+      );
+      return;
+    }
+    final position = positions.first;
+    setState(() => _digitalOutputs = DigitalOutputMapConfig(
+          version: _digitalOutputs.version,
+          bindings: _digitalOutputs.bindings,
+          servoBindings: [
+            ..._digitalOutputs.servoBindings,
+            ServoOutputBinding(
+              subsystemId: widget.mapping.subsystemId,
+              servoPos: position,
+              signal: DigitalSignalType.feedFast,
+            ),
+          ],
+        ));
+  }
+
+  Widget _inputBindingEditor(DigitalInputBinding binding) {
+    final l = AppLocalizations.of(context)!;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: const Color(0xFF153748),
+        borderRadius: BorderRadius.circular(7),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(child: Text(getDigitalInputSignalTypeName(context, binding.signal))),
+              IconButton(
+                tooltip: l.delete,
+                onPressed: () => setState(() => _digitalInputs =
+                    DigitalInputMapConfig(
+                      version: _digitalInputs.version,
+                      bindings: List<DigitalInputBinding>.from(
+                        _digitalInputs.bindings,
+                      )..remove(binding),
+                    )),
+                icon: const Icon(Icons.delete_outline, size: 18),
+              ),
+            ],
+          ),
+          _dropRow<DigitalInputSignalType>(
+            l.signal,
+            binding.signal,
+            [
+              for (final signal in DigitalInputSignalType.values)
+                DropdownMenuItem(
+                  value: signal,
+                  child: Text(getDigitalInputSignalTypeName(context, signal)),
+                ),
+            ],
+            (value) {
+              if (value != null) {
+                _replaceInput(binding, binding.copyWith(signal: value));
+              }
+            },
+          ),
+          _dropRow<int>(
+            l.hardwarePin,
+            binding.ioPos,
+            [
+              for (final position
+                  in _devicePositions(binding.ioPos, servo: false))
+                DropdownMenuItem(
+                  value: position,
+                  child: Text('IO $position'),
+                ),
+            ],
+            (value) {
+              if (value != null) {
+                _replaceInput(binding, binding.copyWith(ioPos: value));
+              }
+            },
+          ),
+          _numRow('Bit', binding.bitIndex.toDouble(), (value) {
+            _replaceInput(binding, binding.copyWith(bitIndex: value.round()));
+          }, digits: 0),
+          _dropRow<int>(
+            l.appScope,
+            binding.appScope,
+            const [
+              DropdownMenuItem(value: -1, child: Text('全部应用')),
+              DropdownMenuItem(value: 0, child: Text('失重秤')),
+              DropdownMenuItem(value: 1, child: Text('灌装')),
+            ],
+            (value) {
+              if (value != null) {
+                _replaceInput(binding, binding.copyWith(appScope: value));
+              }
+            },
+          ),
+          _boolRow('高电平有效', binding.activeHigh, (value) {
+            _replaceInput(binding, binding.copyWith(activeHigh: value));
+          }),
+          _boolRow(l.enabled, binding.enabled, (value) {
+            _replaceInput(binding, binding.copyWith(enabled: value));
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _outputBindingEditor(DigitalOutputBinding binding) {
+    final l = AppLocalizations.of(context)!;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: const Color(0xFF153748),
+        borderRadius: BorderRadius.circular(7),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(child: Text(getDigitalSignalTypeName(context, binding.signal))),
+              IconButton(
+                tooltip: l.delete,
+                onPressed: () => setState(() => _digitalOutputs =
+                    DigitalOutputMapConfig(
+                      version: _digitalOutputs.version,
+                      bindings: List<DigitalOutputBinding>.from(
+                        _digitalOutputs.bindings,
+                      )..remove(binding),
+                      servoBindings: _digitalOutputs.servoBindings,
+                    )),
+                icon: const Icon(Icons.delete_outline, size: 18),
+              ),
+            ],
+          ),
+          _dropRow<DigitalSignalType>(
+            l.signal,
+            binding.signal,
+            [
+              for (final signal in DigitalSignalType.values)
+                DropdownMenuItem(
+                  value: signal,
+                  child: Text(getDigitalSignalTypeName(context, signal)),
+                ),
+            ],
+            (value) {
+              if (value != null) {
+                _replaceOutput(
+                  binding,
+                  DigitalOutputBinding(
+                    subsystemId: binding.subsystemId,
+                    ioPos: binding.ioPos,
+                    bitIndex: binding.bitIndex,
+                    signal: value,
+                    activeHigh: binding.activeHigh,
+                    enabled: binding.enabled,
+                    appScope: binding.appScope,
+                    siloIndex: binding.siloIndex,
+                  ),
+                );
+              }
+            },
+          ),
+          _dropRow<int>(
+            l.hardwarePin,
+            binding.ioPos,
+            [
+              for (final position
+                  in _devicePositions(binding.ioPos, servo: false))
+                DropdownMenuItem(value: position, child: Text('IO $position')),
+            ],
+            (value) {
+              if (value != null) {
+                _replaceOutput(
+                  binding,
+                  DigitalOutputBinding(
+                    subsystemId: binding.subsystemId,
+                    ioPos: value,
+                    bitIndex: binding.bitIndex,
+                    signal: binding.signal,
+                    activeHigh: binding.activeHigh,
+                    enabled: binding.enabled,
+                    appScope: binding.appScope,
+                    siloIndex: binding.siloIndex,
+                  ),
+                );
+              }
+            },
+          ),
+          _numRow('Bit', binding.bitIndex.toDouble(), (value) {
+            _replaceOutput(
+              binding,
+              DigitalOutputBinding(
+                subsystemId: binding.subsystemId,
+                ioPos: binding.ioPos,
+                bitIndex: value.round(),
+                signal: binding.signal,
+                activeHigh: binding.activeHigh,
+                enabled: binding.enabled,
+                appScope: binding.appScope,
+                siloIndex: binding.siloIndex,
+              ),
+            );
+          }, digits: 0),
+          _dropRow<int>(
+            l.appScope,
+            binding.appScope,
+            const [
+              DropdownMenuItem(value: -1, child: Text('全部应用')),
+              DropdownMenuItem(value: 0, child: Text('失重秤')),
+              DropdownMenuItem(value: 1, child: Text('灌装')),
+            ],
+            (value) {
+              if (value == null) return;
+              _replaceOutput(
+                binding,
+                DigitalOutputBinding(
+                  subsystemId: binding.subsystemId,
+                  ioPos: binding.ioPos,
+                  bitIndex: binding.bitIndex,
+                  signal: binding.signal,
+                  activeHigh: binding.activeHigh,
+                  enabled: binding.enabled,
+                  appScope: value,
+                  siloIndex: binding.siloIndex,
+                ),
+              );
+            },
+          ),
+          _numRow('料仓编号 (-1=全部)', binding.siloIndex.toDouble(), (value) {
+            _replaceOutput(
+              binding,
+              DigitalOutputBinding(
+                subsystemId: binding.subsystemId,
+                ioPos: binding.ioPos,
+                bitIndex: binding.bitIndex,
+                signal: binding.signal,
+                activeHigh: binding.activeHigh,
+                enabled: binding.enabled,
+                appScope: binding.appScope,
+                siloIndex: value.round(),
+              ),
+            );
+          }, digits: 0),
+          _boolRow('高电平有效', binding.activeHigh, (value) {
+            _replaceOutput(
+              binding,
+              DigitalOutputBinding(
+                subsystemId: binding.subsystemId,
+                ioPos: binding.ioPos,
+                bitIndex: binding.bitIndex,
+                signal: binding.signal,
+                activeHigh: value,
+                enabled: binding.enabled,
+                appScope: binding.appScope,
+                siloIndex: binding.siloIndex,
+              ),
+            );
+          }),
+          _boolRow(l.enabled, binding.enabled, (value) {
+            _replaceOutput(
+              binding,
+              DigitalOutputBinding(
+                subsystemId: binding.subsystemId,
+                ioPos: binding.ioPos,
+                bitIndex: binding.bitIndex,
+                signal: binding.signal,
+                activeHigh: binding.activeHigh,
+                enabled: value,
+                appScope: binding.appScope,
+                siloIndex: binding.siloIndex,
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _servoBindingEditor(ServoOutputBinding binding) {
+    final l = AppLocalizations.of(context)!;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: const Color(0xFF153748),
+        borderRadius: BorderRadius.circular(7),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(child: Text('伺服 · ${getDigitalSignalTypeName(context, binding.signal)}')),
+              IconButton(
+                tooltip: l.delete,
+                onPressed: () => setState(() => _digitalOutputs =
+                    DigitalOutputMapConfig(
+                      version: _digitalOutputs.version,
+                      bindings: _digitalOutputs.bindings,
+                      servoBindings: List<ServoOutputBinding>.from(
+                        _digitalOutputs.servoBindings,
+                      )..remove(binding),
+                    )),
+                icon: const Icon(Icons.delete_outline, size: 18),
+              ),
+            ],
+          ),
+          _dropRow<int>(
+            '伺服设备',
+            binding.servoPos,
+            [
+              for (final position
+                  in _devicePositions(binding.servoPos, servo: true))
+                DropdownMenuItem(
+                  value: position,
+                  child: Text('Servo $position'),
+                ),
+            ],
+            (value) {
+              if (value != null) {
+                _replaceServo(
+                  binding,
+                  ServoOutputBinding(
+                    subsystemId: binding.subsystemId,
+                    servoPos: value,
+                    signal: binding.signal,
+                    enabled: binding.enabled,
+                    appScope: binding.appScope,
+                    siloIndex: binding.siloIndex,
+                  ),
+                );
+              }
+            },
+          ),
+          _dropRow<DigitalSignalType>(
+            l.signal,
+            binding.signal,
+            [
+              for (final signal in DigitalSignalType.values)
+                DropdownMenuItem(
+                  value: signal,
+                  child: Text(getDigitalSignalTypeName(context, signal)),
+                ),
+            ],
+            (value) {
+              if (value != null) {
+                _replaceServo(
+                  binding,
+                  ServoOutputBinding(
+                    subsystemId: binding.subsystemId,
+                    servoPos: binding.servoPos,
+                    signal: value,
+                    enabled: binding.enabled,
+                    appScope: binding.appScope,
+                    siloIndex: binding.siloIndex,
+                  ),
+                );
+              }
+            },
+          ),
+          _dropRow<int>(
+            l.appScope,
+            binding.appScope,
+            const [
+              DropdownMenuItem(value: -1, child: Text('全部应用')),
+              DropdownMenuItem(value: 0, child: Text('失重秤')),
+              DropdownMenuItem(value: 1, child: Text('灌装')),
+            ],
+            (value) {
+              if (value != null) {
+                _replaceServo(
+                  binding,
+                  ServoOutputBinding(
+                    subsystemId: binding.subsystemId,
+                    servoPos: binding.servoPos,
+                    signal: binding.signal,
+                    enabled: binding.enabled,
+                    appScope: value,
+                    siloIndex: binding.siloIndex,
+                  ),
+                );
+              }
+            },
+          ),
+          _numRow('料仓编号 (-1=全部)', binding.siloIndex.toDouble(), (value) {
+            _replaceServo(
+              binding,
+              ServoOutputBinding(
+                subsystemId: binding.subsystemId,
+                servoPos: binding.servoPos,
+                signal: binding.signal,
+                enabled: binding.enabled,
+                appScope: binding.appScope,
+                siloIndex: value.round(),
+              ),
+            );
+          }, digits: 0),
+          _boolRow(l.enabled, binding.enabled, (value) {
+            _replaceServo(
+              binding,
+              ServoOutputBinding(
+                subsystemId: binding.subsystemId,
+                servoPos: binding.servoPos,
+                signal: binding.signal,
+                enabled: value,
+                appScope: binding.appScope,
+                siloIndex: binding.siloIndex,
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
   Widget _hardwareTab(AppLocalizations l) {
+    if (_ioLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_ioError != null) {
+      return Column(
+        children: [
+          Text(_ioError!, style: const TextStyle(color: Color(0xFFFF8F85))),
+          TextButton(onPressed: _loadHardware, child: Text(l.refresh)),
+        ],
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _EntryCard(
-          icon: Icons.input,
+        _group(
           title: l.digitalInputMapping,
-          subtitle: '配置离散输入信号与硬件引脚的对应关系',
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => DigitalInputSettingsScreen(
-                subsystemId: widget.mapping.subsystemId,
+          subtitle: '当前子系统的输入信号与硬件引脚映射',
+          count: _subsystemInputBindings.length,
+          groupKey: 'hardware-inputs',
+          initiallyExpanded: true,
+          children: [
+            if (_subsystemInputBindings.isEmpty)
+              _readonly('暂无输入映射')
+            else
+              for (final binding in _subsystemInputBindings)
+                _inputBindingEditor(binding),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: _addInputBinding,
+                icon: const Icon(Icons.add),
+                label: Text(l.addConfig),
               ),
             ),
-          ),
+          ],
         ),
-        const SizedBox(height: 8),
-        _EntryCard(
-          icon: Icons.power,
+        _group(
           title: l.digitalOutputMapping,
-          subtitle: '配置离散输出 / 伺服输出信号映射',
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const DigitalOutputSettingsScreen(),
+          subtitle: '当前子系统的离散输出与伺服输出映射',
+          count: _subsystemOutputBindings.length +
+              _subsystemServoBindings.length,
+          groupKey: 'hardware-outputs',
+          initiallyExpanded: true,
+          children: [
+            if (_subsystemOutputBindings.isEmpty &&
+                _subsystemServoBindings.isEmpty)
+              _readonly('暂无输出映射')
+            else ...[
+              for (final binding in _subsystemOutputBindings)
+                _outputBindingEditor(binding),
+              for (final binding in _subsystemServoBindings)
+                _servoBindingEditor(binding),
+            ],
+            Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 8,
+              children: [
+                TextButton.icon(
+                  onPressed: _addOutputBinding,
+                  icon: const Icon(Icons.add),
+                  label: const Text('添加离散输出'),
+                ),
+                TextButton.icon(
+                  onPressed: _addServoBinding,
+                  icon: const Icon(Icons.add),
+                  label: const Text('添加伺服输出'),
+                ),
+              ],
             ),
+          ],
+        ),
+        Align(
+          alignment: Alignment.centerRight,
+          child: FilledButton.icon(
+            onPressed: _ioSaving ? null : _saveHardware,
+            icon: _ioSaving
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.save_outlined, size: 16),
+            label: Text(l.save),
           ),
         ),
       ],
@@ -2249,46 +3671,163 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _EntryCard(
-          icon: Icons.storage_outlined,
+        if (_siloSequenceLoading)
+          const Center(child: CircularProgressIndicator())
+        else if (_siloError != null)
+          Text(_siloError!, style: const TextStyle(color: Color(0xFFFF8F85))),
+        _group(
           title: '料仓配置',
-          subtitle: '添加、编辑料仓及其独立工艺参数',
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) =>
-                  SiloConfigScreen(subsystemId: widget.mapping.subsystemId),
+          subtitle: '选择料仓并直接编辑独立工艺参数',
+          count: _siloIndices.length,
+          groupKey: 'silo-process',
+          initiallyExpanded: true,
+          children: [
+            if (_siloIndices.isEmpty)
+              _readonly('暂无已配置料仓')
+            else
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<int>(
+                      value: _selectedSiloIndex,
+                      decoration: _deco().copyWith(labelText: '料仓编号'),
+                      dropdownColor: const Color(0xFF153748),
+                      style: const TextStyle(
+                        color: Color(0xFFEFFAFF),
+                        fontSize: 13,
+                      ),
+                      items: [
+                        for (final index in _siloIndices)
+                          DropdownMenuItem(
+                            value: index,
+                            child: Text('料仓 $index'),
+                          ),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) _loadSiloProcess(value);
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Wrap(
+                children: [
+                  TextButton.icon(
+                    onPressed: _siloSequenceLoading ? null : _loadSiloSequence,
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: Text(l.refresh),
+                  ),
+                  TextButton.icon(
+                    onPressed: _addSilo,
+                    icon: const Icon(Icons.add, size: 16),
+                    label: const Text('添加料仓'),
+                  ),
+                ],
+              ),
             ),
-          ),
+            if (_siloEditMode) ..._fillingRecipeGroups(l).skip(1),
+            if (_siloEditMode)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: _saving ? null : _save,
+                  icon: const Icon(Icons.save_outlined),
+                  label: Text('保存料仓参数'),
+                ),
+              ),
+          ],
         ),
-        const SizedBox(height: 8),
-        _EntryCard(
-          icon: Icons.format_list_numbered,
+        _group(
           title: '料仓顺序',
-          subtitle: '配置多料仓配方的执行顺序与目标值',
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => SiloSequenceConfigScreen(
-                subsystemId: widget.mapping.subsystemId,
-              ),
+          subtitle: '多料仓配方的执行顺序与目标值',
+          count: _siloSequence.steps.length,
+          groupKey: 'silo-sequence',
+          initiallyExpanded: true,
+          children: [
+            _boolRow(
+              '启用料仓顺序',
+              _siloSequence.enabled,
+              (value) => setState(() {
+                _siloSequence = SiloSequenceConfig(
+                  subsystemId: widget.mapping.subsystemId,
+                  enabled: value,
+                  steps: _siloSequence.steps,
+                );
+              }),
             ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        _EntryCard(
-          icon: Icons.science_outlined,
-          title: '配方库管理',
-          subtitle: '管理该子系统的全部配方',
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => MaterialRecipeScreen(
-                appType: _appType,
-                subsystemId: widget.mapping.subsystemId,
-              ),
+            if (_siloSequence.steps.isEmpty)
+              _readonly('暂无料仓步骤')
+            else
+              for (var index = 0;
+                  index < _siloSequence.steps.length;
+                  index++)
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    '${index + 1}. 料仓 ${_siloSequence.steps[index].siloIndex}',
+                    style: const TextStyle(color: Color(0xFFEFFAFF)),
+                  ),
+                  subtitle: Text(
+                    '${_siloSequence.steps[index].materialName} · '
+                    '${_siloSequence.steps[index].targetValue} kg',
+                    style: const TextStyle(color: Color(0xFF91ABBA)),
+                  ),
+                  trailing: Wrap(
+                    children: [
+                      IconButton(
+                        tooltip: '编辑',
+                        onPressed: _siloIndices.isEmpty
+                            ? null
+                            : () => _editSiloStep(
+                                  current: _siloSequence.steps[index],
+                                  index: index,
+                                ),
+                        icon: const Icon(Icons.edit_outlined, size: 18),
+                      ),
+                      IconButton(
+                        tooltip: l.delete,
+                        onPressed: () => setState(() {
+                          final steps =
+                              List<SiloStep>.from(_siloSequence.steps)
+                                ..removeAt(index);
+                          _siloSequence = SiloSequenceConfig(
+                            subsystemId: widget.mapping.subsystemId,
+                            enabled: _siloSequence.enabled,
+                            steps: steps,
+                          );
+                        }),
+                        icon: const Icon(Icons.delete_outline, size: 18),
+                      ),
+                    ],
+                  ),
+                ),
+            Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 8,
+              children: [
+                TextButton.icon(
+                  onPressed:
+                      _siloIndices.isEmpty ? null : () => _editSiloStep(),
+                  icon: const Icon(Icons.add),
+                  label: const Text('添加步骤'),
+                ),
+                FilledButton(
+                  onPressed:
+                      _siloSequenceSaving ? null : _saveSiloSequence,
+                  child: _siloSequenceSaving
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text(l.save),
+                ),
+              ],
             ),
-          ).then((_) => _loadRecipes()),
+          ],
         ),
       ],
     );
@@ -2567,103 +4106,6 @@ class _ScopeBadge extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _EntryCard extends StatelessWidget {
-  const _EntryCard({
-    required this.icon,
-    required this.title,
-    this.subtitle,
-    required this.onTap,
-    this.badge,
-  });
-
-  final IconData icon;
-  final String title;
-  final String? subtitle;
-  final VoidCallback onTap;
-  final String? badge;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: const Color(0xFF153748),
-      borderRadius: BorderRadius.circular(10),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: const Color(0xFF31596A)),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1F4A58),
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: Icon(icon, color: const Color(0xFF62E3E5), size: 20),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        color: Color(0xFFEFFAFF),
-                        fontWeight: FontWeight.w600,
-                        fontSize: 13,
-                      ),
-                    ),
-                    if (subtitle != null) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        subtitle!,
-                        style: const TextStyle(
-                          color: Color(0xFF91ABBA),
-                          fontSize: 11,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              if (badge != null)
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF0D2535),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    badge!,
-                    style: const TextStyle(
-                      color: Color(0xFF62E3E5),
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              const SizedBox(width: 8),
-              const Icon(
-                Icons.chevron_right,
-                color: Color(0xFF91ABBA),
-                size: 18,
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
