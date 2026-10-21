@@ -36,6 +36,8 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
   int _section = 0;
   int _loadGeneration = 0;
   int _siloProcessGeneration = 0;
+  int _valueRevision = 0;
+  String? _activeGroupKey;
   bool _loading = true;
   bool _saving = false;
   String? _error;
@@ -107,6 +109,7 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
   @override
   void initState() {
     super.initState();
+    _collapsedGroups.add('recipe-library');
     _name = TextEditingController(text: widget.mapping.description);
     _appType = widget.mapping.appType;
     _enabled = widget.mapping.enabled;
@@ -144,6 +147,7 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
       _liveWeight = 0;
       _calibrationStatus = null;
       _collapsedGroups.clear();
+      _collapsedGroups.add('recipe-library');
       _load();
       _loadRecipes();
       _loadHardware();
@@ -316,6 +320,7 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
           widget.mapping.subsystemId != subsystemId) return;
       setState(() {
         _selectedSiloIndex = siloIndex;
+        _valueRevision++;
         _fillTarget = values[0] as FillingTargetConfig;
         _fillAutoTare = values[1] as FillingAutoTareConfig;
         _fillTol = values[2] as FillingToleranceConfig;
@@ -768,7 +773,10 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
         _liwStats = liwStats;
       }
       if (!mounted || generation != _loadGeneration) return;
-      setState(() => _loading = false);
+      setState(() {
+        _valueRevision++;
+        _loading = false;
+      });
     } catch (e) {
       if (!mounted || generation != _loadGeneration) return;
       setState(() {
@@ -1172,6 +1180,124 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
       _searchQuery.isEmpty ||
       label.toLowerCase().contains(_searchQuery.toLowerCase());
 
+  List<_ConfigGroupOption> _groupOptions(AppLocalizations l, [int? section]) {
+    switch (section ?? _section) {
+      case 1:
+        return [
+          _ConfigGroupOption('scale-base', '秤台参数'),
+          _ConfigGroupOption('scale-zero', '零点配置'),
+          _ConfigGroupOption('scale-tare', '皮重配置'),
+          _ConfigGroupOption('scale-calibration', l.calibration),
+        ];
+      case 2:
+        return const [
+          _ConfigGroupOption('filter-lp', '低通滤波'),
+          _ConfigGroupOption('filter-notch', '陷波滤波'),
+          _ConfigGroupOption('filter-adaptive', '自适应滤波'),
+          _ConfigGroupOption('filter-stability', '稳定性检测'),
+        ];
+      case 3:
+        final groups = <_ConfigGroupOption>[];
+        if (_appType == 1) {
+          groups.addAll(const [
+            _ConfigGroupOption('fill-general', '通用'),
+            _ConfigGroupOption('fill-target', '目标'),
+            _ConfigGroupOption('fill-autotare', '自动去皮'),
+            _ConfigGroupOption('fill-tol', '公差'),
+            _ConfigGroupOption('fill-spill', '溢出优化'),
+            _ConfigGroupOption('fill-cutoff', '截止优化'),
+            _ConfigGroupOption('fill-jog', '点动'),
+            _ConfigGroupOption('fill-refill', '回填'),
+            _ConfigGroupOption('fill-empty', '排空'),
+            _ConfigGroupOption('fill-events', '事件'),
+            _ConfigGroupOption('fill-adv', '高级配置'),
+          ]);
+        } else {
+          groups.addAll(const [
+            _ConfigGroupOption('liw-base', '基础'),
+            _ConfigGroupOption('liw-system', '系统'),
+            _ConfigGroupOption('liw-sysid', '系统辨识'),
+            _ConfigGroupOption('liw-pid', '控制器 PID'),
+            _ConfigGroupOption('liw-refill', '回填'),
+            _ConfigGroupOption('liw-target', '目标值'),
+            _ConfigGroupOption('liw-tol', '公差检查'),
+            _ConfigGroupOption('liw-empty', '排空'),
+            _ConfigGroupOption('liw-warn', '报警配置'),
+            _ConfigGroupOption('liw-flow', '流量监控'),
+            _ConfigGroupOption('liw-adv', '高级配置'),
+            _ConfigGroupOption('liw-stats', '统计'),
+          ]);
+        }
+        return groups;
+      default:
+        return const [];
+    }
+  }
+
+  Widget _buildGroupNavigation(AppLocalizations l) {
+    final groups = _groupOptions(l);
+    if (groups.isEmpty) return const SizedBox.shrink();
+    final selectedIndex =
+        groups.indexWhere((group) => group.key == _activeGroupKey);
+    final index = selectedIndex < 0 ? 0 : selectedIndex;
+    final selected = groups[index];
+    return Container(
+      color: const Color(0xFF0D2535),
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '当前分组 ${index + 1}/${groups.length} · ${selected.title}',
+            key: const Key('config-group-position'),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Color(0xFF91ABBA),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 5),
+          SizedBox(
+            height: 32,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: groups.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 6),
+              itemBuilder: (context, i) {
+                final group = groups[i];
+                final isSelected = i == index;
+                return ChoiceChip(
+                  key: Key('group-nav-${group.key}'),
+                  label: Text(group.title),
+                  selected: isSelected,
+                  onSelected: (_) => setState(() => _activeGroupKey = group.key),
+                  labelStyle: TextStyle(
+                    color: isSelected
+                        ? const Color(0xFFEFFAFF)
+                        : const Color(0xFF91ABBA),
+                    fontSize: 11,
+                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 5),
+                  backgroundColor: const Color(0xFF153748),
+                  selectedColor: const Color(0xFF1F728A),
+                  side: BorderSide(
+                    color: isSelected
+                        ? const Color(0xFF62E3E5)
+                        : const Color(0xFF29495B),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context)!;
@@ -1198,6 +1324,7 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
           _buildSearchBar(),
           _buildBasicInfoBar(l),
           _buildTabBar(sections),
+          _buildGroupNavigation(l),
           const Divider(height: 1, color: Color(0xFF29495B)),
           Expanded(
             child: _loading
@@ -1283,6 +1410,7 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 4, 14, 10),
       child: TextField(
+        key: const Key('config-search'),
         style: const TextStyle(color: Color(0xFFEFFAFF)),
         decoration: InputDecoration(
           prefixIcon:
@@ -1394,7 +1522,18 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
                       width: 88,
                       height: 44,
                       child: InkWell(
-                        onTap: () => setState(() => _section = i),
+                        onTap: () => setState(() {
+                          _section = i;
+                          final groups =
+                              _groupOptions(AppLocalizations.of(context)!, i);
+                          _activeGroupKey = groups.isEmpty
+                              ? null
+                              : i == 3
+                                  ? (_appType == 1
+                                      ? 'fill-general'
+                                      : 'liw-system')
+                                  : groups.first.key;
+                        }),
                         child: Center(
                           child: AnimatedDefaultTextStyle(
                             duration: const Duration(milliseconds: 220),
@@ -3845,95 +3984,111 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
     bool initiallyExpanded = false,
   }) {
     final isExpanded = !_collapsedGroups.contains(groupKey);
+    final options = _groupOptions(AppLocalizations.of(context)!);
+    final isNavigable = options.any((group) => group.key == groupKey);
+    final selectedGroupKey =
+        options.any((group) => group.key == _activeGroupKey)
+            ? _activeGroupKey
+            : options.isEmpty
+                ? null
+                : options.first.key;
+    final isHidden = isNavigable &&
+        _searchQuery.isEmpty &&
+        groupKey != selectedGroupKey;
     // 用折叠状态（而非 initiallyExpanded）——initState 时的 initiallyExpanded 只用于初始状态
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0D2535),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFF29495B)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // 头：左彩色竖条 + 标题 + 副标题 + 项数 + 折叠图标
-          InkWell(
-            borderRadius: BorderRadius.circular(8),
-            onTap: () {
-              setState(() {
-                if (_collapsedGroups.contains(groupKey)) {
-                  _collapsedGroups.remove(groupKey);
-                } else {
-                  _collapsedGroups.add(groupKey);
-                }
-              });
-            },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              decoration: BoxDecoration(
-                border: Border(
-                  left: BorderSide(
-                    color: const Color(0xFF62E3E5),
-                    width: 4,
+    return Offstage(
+      offstage: isHidden,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0D2535),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xFF29495B)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // 头：左彩色竖条 + 标题 + 副标题 + 项数 + 折叠图标
+            InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () {
+                setState(() {
+                  if (_collapsedGroups.contains(groupKey)) {
+                    _collapsedGroups.remove(groupKey);
+                  } else {
+                    _collapsedGroups.add(groupKey);
+                  }
+                });
+              },
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  border: Border(
+                    left: BorderSide(
+                      color: const Color(0xFF62E3E5),
+                      width: 4,
+                    ),
                   ),
                 ),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          style: const TextStyle(
-                            color: Color(0xFF62E3E5),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        if (subtitle != null)
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
                           Text(
-                            subtitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                            title,
                             style: const TextStyle(
-                              color: Color(0xFF91ABBA),
-                              fontSize: 10,
+                              color: Color(0xFF62E3E5),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
-                      ],
-                    ),
-                  ),
-                  if (count != null)
-                    Text(
-                      '$count 项',
-                      style: const TextStyle(
-                        color: Color(0xFF91ABBA),
-                        fontSize: 11,
+                          if (subtitle != null)
+                            Text(
+                              subtitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Color(0xFF91ABBA),
+                                fontSize: 10,
+                              ),
+                            ),
+                        ],
                       ),
                     ),
-                  const SizedBox(width: 6),
-                  Icon(
-                    isExpanded
-                        ? Icons.keyboard_arrow_up
-                        : Icons.keyboard_arrow_down,
-                    size: 18,
-                    color: const Color(0xFF91ABBA),
-                  ),
-                ],
+                    if (count != null)
+                      Text(
+                        '$count 项',
+                        style: const TextStyle(
+                          color: Color(0xFF91ABBA),
+                          fontSize: 11,
+                        ),
+                      ),
+                    const SizedBox(width: 6),
+                    Icon(
+                      isExpanded
+                          ? Icons.keyboard_arrow_up
+                          : Icons.keyboard_arrow_down,
+                      size: 18,
+                      color: const Color(0xFF91ABBA),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-          if (isExpanded)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(10, 4, 10, 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: children,
+            if (isExpanded)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(10, 4, 10, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: children,
+                ),
               ),
-            ),
-        ],
+          ],
+        ),
+      ),
       ),
     );
   }
@@ -3980,7 +4135,9 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
     return _paramRow(
       label: label,
       control: TextFormField(
-        key: ValueKey('$label-${widget.mapping.subsystemId}-$value-$digits'),
+        key: ValueKey(
+          '$label-${widget.mapping.subsystemId}-$_valueRevision-$digits',
+        ),
         initialValue: value.toStringAsFixed(digits),
         style: const TextStyle(color: Color(0xFFEFFAFF), fontSize: 13),
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -4072,6 +4229,13 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
 }
 
 // ── 通用小部件 ────────────────────────────────────────────────
+
+class _ConfigGroupOption {
+  const _ConfigGroupOption(this.key, this.title);
+
+  final String key;
+  final String title;
+}
 
 class _ScopeBadge extends StatelessWidget {
   const _ScopeBadge({this.isAll = false});

@@ -38,6 +38,9 @@ void main() {
     await tester.tap(find.text('称重'));
     await tester.pump();
     expect(find.text('量程'), findsOneWidget);
+    expect(find.text('零点跟踪 / 零点配置'), findsNothing);
+    await tester.tap(find.byKey(const Key('group-nav-scale-zero')));
+    await tester.pump();
     expect(find.text('零点跟踪 / 零点配置'), findsOneWidget);
 
     await tester.tap(find.text('配方'));
@@ -50,6 +53,63 @@ void main() {
     expect(find.text('离散输入配置'), findsOneWidget);
     expect(find.text('数字输出映射'), findsOneWidget);
     expect(observer.pushes, 0);
+
+    appState.dispose();
+  });
+
+  testWidgets('group navigation switches directly to editable parameters',
+      (tester) async {
+    final appState = AppState();
+    await tester.pumpWidget(_testApp(
+      appState,
+      _RouteObserver(),
+      const SubsystemMappingInfo(
+        subsystemId: 1,
+        scaleId: 1,
+        description: '1# 失重秤',
+        appType: 0,
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 400));
+
+    await tester.tap(find.text('称重'));
+    await tester.pump();
+    expect(find.text('量程'), findsOneWidget);
+    await tester.enterText(find.byType(TextFormField).first, '123.45');
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('group-nav-scale-zero')));
+    await tester.pump();
+    expect(find.text('量程'), findsNothing);
+    expect(find.text('自动零跟踪'), findsOneWidget);
+    expect(find.text('当前分组 2/4 · 零点配置'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('group-nav-scale-base')));
+    await tester.pump();
+    final capacityField = find.descendant(
+      of: find.byType(TextFormField).first,
+      matching: find.byType(EditableText),
+    );
+    expect(tester.widget<EditableText>(capacityField).controller.text, '123.45');
+
+    await tester.tap(find.text('滤波'));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('group-nav-filter-notch')));
+    await tester.pump();
+    await tester.enterText(find.byKey(const Key('config-search')), '频率');
+    await tester.pump();
+    expect(find.text('频率 (Hz)'), findsOneWidget);
+    expect(find.text('当前分组 2/4 · 陷波滤波'), findsOneWidget);
+
+    await tester.enterText(find.byKey(const Key('config-search')), '');
+    await tester.pump();
+    await tester.tap(find.text('配方'));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('group-nav-liw-system')));
+    await tester.pump();
+    expect(find.text('安全限制'), findsOneWidget);
+    expect(find.text('当前子系统配方'), findsOneWidget);
+    expect(tester.takeException(), isNull);
 
     appState.dispose();
   });
