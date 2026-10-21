@@ -312,9 +312,16 @@ void main() {
     await tester.pump();
     expect(calibrationPlatform.substituteWeight, 1);
     await tester.ensureVisible(find.byKey(const Key('calibration-add-load')));
+    calibrationPlatform.addLoadResult = false;
     await tester.tap(find.byKey(const Key('calibration-add-load')));
     await tester.pump();
     expect(calibrationPlatform.addLoadCount, 1);
+    expect(find.byKey(const Key('calibration-add-load')), findsOneWidget);
+    calibrationPlatform.addLoadResult = true;
+    await tester.ensureVisible(find.byKey(const Key('calibration-add-load')));
+    await tester.tap(find.byKey(const Key('calibration-add-load')));
+    await tester.pump();
+    expect(calibrationPlatform.addLoadCount, 2);
 
     await tester.pumpWidget(const SizedBox.shrink());
     appState.dispose();
@@ -480,6 +487,7 @@ class _CalibrationTestPlatform extends WebPreviewWeighingPlatform {
   int saveCount = 0;
   int zeroCount = 0;
   int acceptDynamicCount = 0;
+  bool addLoadResult = true;
 
   @override
   Stream<Map<String, dynamic>> get calibrationEvents =>
@@ -526,7 +534,7 @@ class _CalibrationTestPlatform extends WebPreviewWeighingPlatform {
   @override
   Future<bool> triggerCalibrationAddLoad(int scaleId) async {
     addLoadCount++;
-    return true;
+    return addLoadResult;
   }
 
   @override

@@ -90,6 +90,7 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
   _PanelCalibrationType _activeCalibration = _PanelCalibrationType.none;
   _PanelStepPhase _stepPhase = _PanelStepPhase.idle;
   int _calibrationGeneration = 0;
+  int _calibrationEventRevision = 0;
   int _streamGeneration = 0;
 
   ScaleParams _scale = const ScaleParams();
@@ -649,6 +650,7 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
       widget.mapping.subsystemId == subsystemId;
 
   void _handleCalibrationEvent(int state, String message) {
+    _calibrationEventRevision++;
     setState(() {
       _calibrationState = state;
       switch (state) {
@@ -857,6 +859,11 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
     final scaleId = widget.mapping.scaleId;
     final subsystemId = widget.mapping.subsystemId;
     final generation = _calibrationGeneration;
+    final eventRevision = _calibrationEventRevision;
+    final previousState = _calibrationState;
+    final previousStepPhase = _stepPhase;
+    final previousComplete = _calibrationComplete;
+    final previousDynamicAccepted = _dynamicCalibrationAccepted;
     setState(() {
       _calibrationBusy = true;
       _calibrationComplete = false;
@@ -870,10 +877,28 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
     try {
       final ok = await _platform.triggerCalibrationAddLoad(scaleId);
       if (!_isCurrentCalibration(generation, scaleId, subsystemId)) return;
-      if (!ok) setState(() => _calibrationStatus = '确认加载失败。');
+      if (!ok) {
+        setState(() {
+          if (_calibrationEventRevision == eventRevision) {
+            _calibrationState = previousState;
+            _stepPhase = previousStepPhase;
+            _calibrationComplete = previousComplete;
+            _dynamicCalibrationAccepted = previousDynamicAccepted;
+          }
+          _calibrationStatus = '确认加载失败。';
+        });
+      }
     } catch (error) {
       if (_isCurrentCalibration(generation, scaleId, subsystemId)) {
-        setState(() => _calibrationStatus = '$error');
+        setState(() {
+          if (_calibrationEventRevision == eventRevision) {
+            _calibrationState = previousState;
+            _stepPhase = previousStepPhase;
+            _calibrationComplete = previousComplete;
+            _dynamicCalibrationAccepted = previousDynamicAccepted;
+          }
+          _calibrationStatus = '$error';
+        });
       }
     } finally {
       if (_isCurrentCalibration(generation, scaleId, subsystemId)) {
