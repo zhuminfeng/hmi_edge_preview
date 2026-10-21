@@ -662,6 +662,7 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
             _PanelCalibrationType.step => '正在采集砝码重量，请保持稳定。',
             _ => message,
           };
+          break;
         case 2:
           _calibrationComplete = true;
           _dynamicCalibrationAccepted = false;
@@ -676,10 +677,15 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
           } else {
             _calibrationStatus = message;
           }
+          break;
         case 3:
           _calibrationComplete = true;
           _dynamicCalibrationAccepted = false;
+          if (_activeCalibration == _PanelCalibrationType.span) {
+            _completedSpanSteps = _linearMode + 1;
+          }
           _calibrationStatus = '检测到动态校正结果，请确认接受后保存，或拒绝。';
+          break;
         case 4:
           _calibrationComplete = false;
           _dynamicCalibrationAccepted = false;
@@ -687,6 +693,7 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
           _stepPhase = _PanelStepPhase.idle;
           _calibrationStatus =
               message.isEmpty ? '校正失败，请检查秤台后重试。' : '校正失败：$message';
+          break;
         case 6:
           if (_activeCalibration == _PanelCalibrationType.span) {
             if (!_spanWaitingHandled &&
@@ -707,6 +714,7 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
             _calibrationStatus =
                 message.isEmpty ? '等待下一步操作。' : message;
           }
+          break;
       }
     });
   }
@@ -856,6 +864,7 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
           ? '正在采集第 ${_completedSpanSteps + 1} 个量程点。'
           : '已确认替代物料，请继续加码并开始下一点。';
       if (canContinueSpan) _spanWaitingHandled = false;
+      if (canContinueStep) _stepPhase = _PanelStepPhase.idle;
       _calibrationState = 1;
     });
     try {

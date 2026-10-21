@@ -203,8 +203,31 @@ void main() {
     await tester.pump();
     expect(find.text('第 1 点砝码重量（lb）'), findsOneWidget);
     expect(find.text('砝码标定单位'), findsOneWidget);
+    calibrationPlatform.emitWeight(const WeightData(
+      scaleId: 1,
+      grossWeight: 1,
+      isStable: true,
+      unit: WeightUnit.kilogram,
+    ));
+    await tester.pump();
+    expect(find.text('2.20 lb'), findsOneWidget);
+    expect(find.text('实时毛重  稳定'), findsOneWidget);
 
     await tester.ensureVisible(find.byKey(const Key('calibration-start-span')));
+    await tester.ensureVisible(
+      find.byKey(const Key('calibration-span-load-1')),
+    );
+    await tester.enterText(
+      find.byKey(const Key('calibration-span-load-1')),
+      '0',
+    );
+    await tester.tap(find.byKey(const Key('calibration-start-span')));
+    await tester.pump();
+    expect(calibrationPlatform.spanLoads, isNull);
+    await tester.enterText(
+      find.byKey(const Key('calibration-span-load-1')),
+      '1',
+    );
     await tester.tap(find.byKey(const Key('calibration-start-span')));
     await tester.pump();
     expect(calibrationPlatform.spanLinearMode, 1);
@@ -271,17 +294,75 @@ void main() {
 
     calibrationPlatform.emitCalibrationState(1, 2);
     await tester.pump();
+    await tester.ensureVisible(
+      find.byKey(const Key('calibration-prepare-remove')),
+    );
     await tester.tap(find.byKey(const Key('calibration-prepare-remove')));
     await tester.pump();
+    await tester.ensureVisible(
+      find.byKey(const Key('calibration-remove-confirm')),
+    );
     await tester.tap(find.byKey(const Key('calibration-remove-confirm')));
     await tester.pump();
     expect(calibrationPlatform.removeConfirmCount, 1);
+    await tester.ensureVisible(
+      find.byKey(const Key('calibration-substitute-confirm')),
+    );
     await tester.tap(find.byKey(const Key('calibration-substitute-confirm')));
     await tester.pump();
     expect(calibrationPlatform.substituteWeight, 1);
+    await tester.ensureVisible(find.byKey(const Key('calibration-add-load')));
     await tester.tap(find.byKey(const Key('calibration-add-load')));
     await tester.pump();
     expect(calibrationPlatform.addLoadCount, 1);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    appState.dispose();
+    await calibrationPlatform.shutdown();
+    WeighingPlatform.instance = originalPlatform;
+  });
+
+  testWidgets('zero calibration requires a dynamic-result decision before save',
+      (tester) async {
+    final originalPlatform = platform;
+    final calibrationPlatform = _CalibrationTestPlatform();
+    WeighingPlatform.instance = calibrationPlatform;
+    await calibrationPlatform.initialize();
+    final appState = AppState();
+    await tester.pumpWidget(_testApp(
+      appState,
+      _RouteObserver(),
+      const SubsystemMappingInfo(
+        subsystemId: 1,
+        scaleId: 1,
+        description: '1# 失重秤',
+        appType: 0,
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('称重'));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('group-nav-scale-calibration')));
+    await tester.pump();
+
+    await tester.ensureVisible(find.byKey(const Key('calibration-start-zero')));
+    await tester.tap(find.byKey(const Key('calibration-start-zero')));
+    await tester.pump();
+    expect(calibrationPlatform.zeroCount, 1);
+    calibrationPlatform.emitCalibrationState(1, 3);
+    await tester.pump();
+    expect(find.text('接受动态校正'), findsOneWidget);
+    expect(find.byKey(const Key('calibration-save')), findsNothing);
+
+    await tester.ensureVisible(find.text('接受动态校正'));
+    await tester.tap(find.text('接受动态校正'));
+    await tester.pump();
+    expect(find.byKey(const Key('calibration-save')), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const Key('calibration-save')));
+    await tester.tap(find.byKey(const Key('calibration-save')));
+    await tester.pump();
+    expect(calibrationPlatform.acceptDynamicCount, 1);
+    expect(calibrationPlatform.saveCount, 1);
 
     await tester.pumpWidget(const SizedBox.shrink());
     appState.dispose();
@@ -388,6 +469,8 @@ class _RouteObserver extends NavigatorObserver {
 class _CalibrationTestPlatform extends WebPreviewWeighingPlatform {
   final StreamController<Map<String, dynamic>> _calibrationController =
       StreamController<Map<String, dynamic>>.broadcast();
+  final StreamController<WeightData> _weightController =
+      StreamController<WeightData>.broadcast();
   int? spanLinearMode;
   List<double>? spanLoads;
   double? stepWeight;
@@ -395,10 +478,19 @@ class _CalibrationTestPlatform extends WebPreviewWeighingPlatform {
   int addLoadCount = 0;
   int removeConfirmCount = 0;
   int saveCount = 0;
+  int zeroCount = 0;
+  int acceptDynamicCount = 0;
 
   @override
   Stream<Map<String, dynamic>> get calibrationEvents =>
       _calibrationController.stream;
+
+  @override
+  Stream<WeightData> get weightStream => _weightController.stream;
+
+  void emitWeight(WeightData weight) {
+    _weightController.add(weight);
+  }
 
   void emitCalibrationState(int scaleId, int state) {
     _calibrationController.add({
@@ -406,6 +498,12 @@ class _CalibrationTestPlatform extends WebPreviewWeighingPlatform {
       'state': state,
       'message': '',
     });
+  }
+
+  @override
+  Future<bool> triggerCalZero(int scaleId) async {
+    zeroCount++;
+    return true;
   }
 
   @override
@@ -453,8 +551,15 @@ class _CalibrationTestPlatform extends WebPreviewWeighingPlatform {
   }
 
   @override
+  Future<bool> acceptDynamicCalibration(int scaleId, bool accept) async {
+    acceptDynamicCount++;
+    return true;
+  }
+
+  @override
   Future<void> shutdown() async {
     await _calibrationController.close();
+    await _weightController.close();
     await super.shutdown();
   }
 }
