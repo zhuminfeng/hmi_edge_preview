@@ -38,6 +38,9 @@ void main() {
     await tester.tap(find.text('称重'));
     await tester.pump();
     expect(find.text('量程'), findsOneWidget);
+    expect(find.text('零点跟踪 / 零点配置'), findsNothing);
+    await tester.tap(find.byKey(const Key('group-nav-scale-zero')));
+    await tester.pump();
     expect(find.text('零点跟踪 / 零点配置'), findsOneWidget);
 
     await tester.tap(find.text('配方'));
@@ -105,7 +108,7 @@ void main() {
     await tester.tap(find.byKey(const Key('group-nav-liw-system')));
     await tester.pump();
     expect(find.text('安全限制'), findsOneWidget);
-    expect(find.text('当前子系统配方'), findsNothing);
+    expect(find.text('当前子系统配方'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
     appState.dispose();

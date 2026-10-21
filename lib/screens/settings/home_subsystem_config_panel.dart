@@ -109,6 +109,7 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
   @override
   void initState() {
     super.initState();
+    _collapsedGroups.add('recipe-library');
     _name = TextEditingController(text: widget.mapping.description);
     _appType = widget.mapping.appType;
     _enabled = widget.mapping.enabled;
@@ -146,6 +147,7 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
       _liveWeight = 0;
       _calibrationStatus = null;
       _collapsedGroups.clear();
+      _collapsedGroups.add('recipe-library');
       _load();
       _loadRecipes();
       _loadHardware();
@@ -1195,9 +1197,7 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
           _ConfigGroupOption('filter-stability', '稳定性检测'),
         ];
       case 3:
-        final groups = [
-          const _ConfigGroupOption('recipe-library', '配方列表'),
-        ];
+        final groups = <_ConfigGroupOption>[];
         if (_appType == 1) {
           groups.addAll(const [
             _ConfigGroupOption('fill-general', '通用'),
@@ -1526,8 +1526,13 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
                           _section = i;
                           final groups =
                               _groupOptions(AppLocalizations.of(context)!, i);
-                          _activeGroupKey =
-                              groups.isEmpty ? null : groups.first.key;
+                          _activeGroupKey = groups.isEmpty
+                              ? null
+                              : i == 3
+                                  ? (_appType == 1
+                                      ? 'fill-general'
+                                      : 'liw-system')
+                                  : groups.first.key;
                         }),
                         child: Center(
                           child: AnimatedDefaultTextStyle(
