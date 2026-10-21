@@ -10,6 +10,16 @@ import 'digital_input_settings_screen.dart'
 import 'digital_output_settings_screen.dart' show getDigitalSignalTypeName;
 import 'subsystem_config_screen.dart' show detectSlaveRole, SlaveRole;
 
+enum _PanelCalibrationType { none, zero, span, step }
+
+enum _PanelStepPhase {
+  idle,
+  weightLoaded,
+  removeWaiting,
+  substituteWaiting,
+  nextLoad,
+}
+
 /// 首页内嵌配置面板。
 /// Tab 按 subsystem_detail_config_screen 分类：基本 / 称重 / 滤波 / 配方 / 硬件 / 工艺。
 /// 每个 Tab 内用「子分类信息条 + 参数行列表」组织（对齐 SVG 风格）。
@@ -65,8 +75,23 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
   StreamSubscription<WeightData>? _weightSubscription;
   StreamSubscription<Map<String, dynamic>>? _calibrationSubscription;
   double _liveWeight = 0;
+  WeightUnit _liveWeightUnit = WeightUnit.kilogram;
+  bool _isWeightStable = false;
   String? _calibrationStatus;
-  final TextEditingController _spanLoad = TextEditingController(text: '1');
+  final List<TextEditingController> _spanLoads =
+      List.generate(4, (_) => TextEditingController(text: '1'));
+  final TextEditingController _stepLoad = TextEditingController(text: '1');
+  int _linearMode = 0;
+  int _calibrationState = 0;
+  int _completedSpanSteps = 0;
+  bool _spanWaitingHandled = false;
+  bool _calibrationComplete = false;
+  bool _dynamicCalibrationAccepted = false;
+  _PanelCalibrationType _activeCalibration = _PanelCalibrationType.none;
+  _PanelStepPhase _stepPhase = _PanelStepPhase.idle;
+  int _calibrationGeneration = 0;
+  int _calibrationEventRevision = 0;
+  int _streamGeneration = 0;
 
   ScaleParams _scale = const ScaleParams();
   ZeroConfig _zero = const ZeroConfig();
@@ -117,13 +142,32 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
     _loadRecipes();
     _loadHardware();
     _loadSiloSequence();
+    _subscribeScaleStreams();
+  }
+
+  void _subscribeScaleStreams() {
+    final generation = ++_streamGeneration;
+    _weightSubscription?.cancel();
+    _calibrationSubscription?.cancel();
     _weightSubscription = _platform.weightStream.listen((data) {
+      if (generation != _streamGeneration) return;
       if (!mounted || data.scaleId != widget.mapping.scaleId) return;
-      setState(() => _liveWeight = data.grossWeight);
+      setState(() {
+        _liveWeight = data.grossWeight;
+        _liveWeightUnit = data.unit;
+        _isWeightStable = data.isStable;
+      });
     });
     _calibrationSubscription = _platform.calibrationEvents.listen((event) {
-      if (!mounted || event['scaleId'] != widget.mapping.scaleId) return;
-      setState(() => _calibrationStatus = event['message'] as String? ?? '');
+      if (generation != _streamGeneration ||
+          !mounted ||
+          event['scaleId'] != widget.mapping.scaleId ||
+          _activeCalibration == _PanelCalibrationType.none) {
+        return;
+      }
+      final state = event['state'];
+      if (state is! int) return;
+      _handleCalibrationEvent(state, event['message'] as String? ?? '');
     });
   }
 
@@ -133,6 +177,10 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
     if (oldWidget.mapping.subsystemId != widget.mapping.subsystemId ||
         oldWidget.mapping.scaleId != widget.mapping.scaleId ||
         oldWidget.mapping.appType != widget.mapping.appType) {
+      _resetCalibration();
+      _liveWeight = 0;
+      _isWeightStable = false;
+      _subscribeScaleStreams();
       if (oldWidget.mapping.subsystemId == widget.mapping.subsystemId &&
           oldWidget.mapping.appType != widget.mapping.appType) {
         AppStateProvider.read(context)
@@ -141,11 +189,9 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
       _name.text = widget.mapping.description;
       _appType = widget.mapping.appType;
       _enabled = widget.mapping.enabled;
+      _saving = false;
       _section = 0;
       _siloSequenceSaving = false;
-      _calibrationBusy = false;
-      _liveWeight = 0;
-      _calibrationStatus = null;
       _collapsedGroups.clear();
       _collapsedGroups.add('recipe-library');
       _load();
@@ -158,7 +204,10 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
   @override
   void dispose() {
     _name.dispose();
-    _spanLoad.dispose();
+    for (final controller in _spanLoads) {
+      controller.dispose();
+    }
+    _stepLoad.dispose();
     _weightSubscription?.cancel();
     _calibrationSubscription?.cancel();
     super.dispose();
@@ -581,57 +630,219 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
     });
   }
 
-  Future<void> _runCalibration({required bool span}) async {
-    if (_calibrationBusy || _loading) return;
-    final scaleId = widget.mapping.scaleId;
-    final l = AppLocalizations.of(context)!;
-    final load = double.tryParse(_spanLoad.text);
-    if (span && (load == null || load <= 0)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请输入大于零的测试砝码重量')),
-      );
-      return;
-    }
+  void _resetCalibration() {
+    _calibrationGeneration++;
+    _calibrationBusy = false;
+    _calibrationStatus = null;
+    _calibrationState = 0;
+    _completedSpanSteps = 0;
+    _spanWaitingHandled = false;
+    _calibrationComplete = false;
+    _dynamicCalibrationAccepted = false;
+    _activeCalibration = _PanelCalibrationType.none;
+    _stepPhase = _PanelStepPhase.idle;
+  }
+
+  bool _isCurrentCalibration(int generation, int scaleId, int subsystemId) =>
+      mounted &&
+      generation == _calibrationGeneration &&
+      widget.mapping.scaleId == scaleId &&
+      widget.mapping.subsystemId == subsystemId;
+
+  void _handleCalibrationEvent(int state, String message) {
+    _calibrationEventRevision++;
     setState(() {
-      _calibrationBusy = true;
-      _calibrationStatus = span ? l.calSpanInProgress : l.calZeroInProgress;
+      _calibrationState = state;
+      switch (state) {
+        case 1:
+          _calibrationComplete = false;
+          _dynamicCalibrationAccepted = false;
+          _calibrationStatus = switch (_activeCalibration) {
+            _PanelCalibrationType.zero => '正在采集零点，请保持秤台空载且稳定。',
+            _PanelCalibrationType.span =>
+              '正在采集第 ${_completedSpanSteps + 1} 个量程点，请按提示加载砝码。',
+            _PanelCalibrationType.step => '正在采集砝码重量，请保持稳定。',
+            _ => message,
+          };
+          break;
+        case 2:
+          _calibrationComplete = true;
+          _dynamicCalibrationAccepted = false;
+          if (_activeCalibration == _PanelCalibrationType.zero) {
+            _calibrationStatus = '零点校正完成，可保存或中止。';
+          } else if (_activeCalibration == _PanelCalibrationType.span) {
+            _completedSpanSteps = _linearMode + 1;
+            _calibrationStatus = '量程校正完成，可保存或中止。';
+          } else if (_activeCalibration == _PanelCalibrationType.step) {
+            _stepPhase = _PanelStepPhase.weightLoaded;
+            _calibrationStatus = '当前砝码点校正完成，可保存或继续逐步法。';
+          } else {
+            _calibrationStatus = message;
+          }
+          break;
+        case 3:
+          _calibrationComplete = true;
+          _dynamicCalibrationAccepted = false;
+          if (_activeCalibration == _PanelCalibrationType.span) {
+            _completedSpanSteps = _linearMode + 1;
+          }
+          _calibrationStatus = '检测到动态校正结果，请确认接受后保存，或拒绝。';
+          break;
+        case 4:
+          _calibrationComplete = false;
+          _dynamicCalibrationAccepted = false;
+          _activeCalibration = _PanelCalibrationType.none;
+          _stepPhase = _PanelStepPhase.idle;
+          _calibrationStatus =
+              message.isEmpty ? '校正失败，请检查秤台后重试。' : '校正失败：$message';
+          break;
+        case 6:
+          if (_activeCalibration == _PanelCalibrationType.span) {
+            if (!_spanWaitingHandled &&
+                _completedSpanSteps < _linearMode + 1) {
+              _completedSpanSteps++;
+              _spanWaitingHandled = true;
+            }
+            final hasNext = _completedSpanSteps < _linearMode + 1;
+            final nextLoad = hasNext
+                ? _spanLoads[_completedSpanSteps].text
+                : '';
+            _calibrationComplete = false;
+            _dynamicCalibrationAccepted = false;
+            _calibrationStatus = hasNext
+                ? '第 $_completedSpanSteps 个量程点完成，请加载第 ${_completedSpanSteps + 1} 点（$nextLoad ${_calibrationUnit}）后继续。'
+                : '量程点采集完成，等待最终结果。';
+          } else {
+            _calibrationStatus =
+                message.isEmpty ? '等待下一步操作。' : message;
+          }
+          break;
+      }
     });
+  }
+
+  String get _calibrationUnit {
+    const units = ['g', 'kg', 'lb', 't', 'ton'];
+    return units[_scale.calibrationUnit.clamp(0, units.length - 1).toInt()];
+  }
+
+  double _convertWeight(double value, WeightUnit from, int to) {
+    const factorsToKg = [0.001, 1.0, 0.45359237, 1000.0, 907.18474];
+    final fromIndex = from.index.clamp(0, factorsToKg.length - 1).toInt();
+    final toIndex = to.clamp(0, factorsToKg.length - 1).toInt();
+    return value * factorsToKg[fromIndex] / factorsToKg[toIndex];
+  }
+
+  Future<void> _runCalibration({
+    required _PanelCalibrationType type,
+  }) async {
+    if (_calibrationBusy || _loading || _saving ||
+        _activeCalibration != _PanelCalibrationType.none) return;
+
+    final scaleId = widget.mapping.scaleId;
+    final subsystemId = widget.mapping.subsystemId;
+    final generation = ++_calibrationGeneration;
+    final loads = <double>[];
+    if (type == _PanelCalibrationType.span) {
+      for (var i = 0; i <= _linearMode; i++) {
+        final load = double.tryParse(_spanLoads[i].text);
+        if (load == null || !load.isFinite || load <= 0) {
+          setState(() => _calibrationStatus =
+              '请输入大于零的第 ${i + 1} 个砝码重量（$_calibrationUnit）。');
+          return;
+        }
+        loads.add(load);
+      }
+    } else if (type == _PanelCalibrationType.step) {
+      final load = double.tryParse(_stepLoad.text);
+      if (load == null || !load.isFinite || load <= 0) {
+        setState(() => _calibrationStatus =
+            '请输入大于零的砝码重量（$_calibrationUnit）。');
+        return;
+      }
+      loads.add(load);
+    }
+
+    setState(() {
+      _activeCalibration = type;
+      _calibrationState = 1;
+      _calibrationComplete = false;
+      _completedSpanSteps = 0;
+      _spanWaitingHandled = false;
+      _stepPhase = _PanelStepPhase.idle;
+      _calibrationStatus = type == _PanelCalibrationType.zero
+          ? '正在进行零点校正，请确认秤台空载。'
+          : type == _PanelCalibrationType.span
+              ? '正在进行量程校正，请加载第 1 点（${loads.first} $_calibrationUnit）。'
+              : '正在开始逐步法校正，请放置 ${loads.first} $_calibrationUnit 砝码。';
+      _calibrationBusy = true;
+    });
+
     try {
-      final ok = span
-          ? await _platform.triggerCalSpan(scaleId, 0, [load!])
-          : await _platform.triggerCalZero(scaleId);
-      if (!mounted || widget.mapping.scaleId != scaleId) return;
+      final ok = switch (type) {
+        _PanelCalibrationType.zero => await _platform.triggerCalZero(scaleId),
+        _PanelCalibrationType.span =>
+          await _platform.triggerCalSpan(scaleId, _linearMode, loads),
+        _PanelCalibrationType.step =>
+          await _platform.triggerStepCalibration(scaleId, loads.single),
+        _PanelCalibrationType.none => false,
+      };
+      if (!_isCurrentCalibration(generation, scaleId, subsystemId)) return;
       if (!ok) {
-        setState(() => _calibrationStatus = l.calSaveFailed);
+        setState(() {
+          _activeCalibration = _PanelCalibrationType.none;
+          _calibrationComplete = false;
+          _calibrationStatus = '启动校正失败。';
+        });
       }
     } catch (error) {
-      if (mounted && widget.mapping.scaleId == scaleId) {
-        setState(() => _calibrationStatus = '$error');
+      if (_isCurrentCalibration(generation, scaleId, subsystemId)) {
+        setState(() {
+          _activeCalibration = _PanelCalibrationType.none;
+          _calibrationComplete = false;
+          _calibrationStatus = '$error';
+        });
       }
     } finally {
-      if (mounted && widget.mapping.scaleId == scaleId) {
+      if (_isCurrentCalibration(generation, scaleId, subsystemId)) {
         setState(() => _calibrationBusy = false);
       }
     }
   }
 
   Future<void> _saveCalibration() async {
-    if (_calibrationBusy || _loading) return;
+    if (_calibrationBusy ||
+        _loading ||
+        !_calibrationComplete ||
+        (_calibrationState != 2 && _calibrationState != 3)) {
+      return;
+    }
+    if (_calibrationState == 3 && !_dynamicCalibrationAccepted) return;
     final scaleId = widget.mapping.scaleId;
+    final subsystemId = widget.mapping.subsystemId;
+    final generation = _calibrationGeneration;
     final l = AppLocalizations.of(context)!;
     setState(() => _calibrationBusy = true);
     try {
-      final params = await _platform.getScaleParams(scaleId);
-      final saved = await _platform.updateScaleParams(scaleId, params);
+      final saved = await _platform.updateScaleParams(scaleId, _scale);
       final ok = saved && await _platform.triggerSaveCalibration(scaleId);
-      if (!mounted || widget.mapping.scaleId != scaleId) return;
-      setState(() => _calibrationStatus = ok ? l.calSavedSuccess : l.calSaveFailed);
+      if (!_isCurrentCalibration(generation, scaleId, subsystemId)) return;
+      setState(() {
+        _calibrationStatus = ok ? l.calSavedSuccess : l.calSaveFailed;
+        if (ok) {
+          _activeCalibration = _PanelCalibrationType.none;
+          _calibrationState = 0;
+          _calibrationComplete = false;
+          _dynamicCalibrationAccepted = false;
+          _stepPhase = _PanelStepPhase.idle;
+        }
+      });
     } catch (error) {
-      if (mounted && widget.mapping.scaleId == scaleId) {
+      if (_isCurrentCalibration(generation, scaleId, subsystemId)) {
         setState(() => _calibrationStatus = '$error');
       }
     } finally {
-      if (mounted && widget.mapping.scaleId == scaleId) {
+      if (_isCurrentCalibration(generation, scaleId, subsystemId)) {
         setState(() => _calibrationBusy = false);
       }
     }
@@ -639,42 +850,194 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
 
   Future<void> _addCalibrationLoad() async {
     if (_calibrationBusy || _loading) return;
+    final canContinueSpan = _activeCalibration == _PanelCalibrationType.span &&
+        _calibrationState == 6 &&
+        _completedSpanSteps < _linearMode + 1;
+    final canContinueStep = _activeCalibration == _PanelCalibrationType.step &&
+        _stepPhase == _PanelStepPhase.nextLoad;
+    if (!canContinueSpan && !canContinueStep) return;
     final scaleId = widget.mapping.scaleId;
-    setState(() => _calibrationBusy = true);
+    final subsystemId = widget.mapping.subsystemId;
+    final generation = _calibrationGeneration;
+    final eventRevision = _calibrationEventRevision;
+    final previousState = _calibrationState;
+    final previousStepPhase = _stepPhase;
+    final previousComplete = _calibrationComplete;
+    final previousDynamicAccepted = _dynamicCalibrationAccepted;
+    setState(() {
+      _calibrationBusy = true;
+      _calibrationComplete = false;
+      _calibrationStatus = canContinueSpan
+          ? '正在采集第 ${_completedSpanSteps + 1} 个量程点。'
+          : '已确认替代物料，请继续加码并开始下一点。';
+      if (canContinueSpan) _spanWaitingHandled = false;
+      if (canContinueStep) _stepPhase = _PanelStepPhase.idle;
+      _calibrationState = 1;
+    });
     try {
       final ok = await _platform.triggerCalibrationAddLoad(scaleId);
-      if (!mounted || widget.mapping.scaleId != scaleId) return;
+      if (!_isCurrentCalibration(generation, scaleId, subsystemId)) return;
       if (!ok) {
-        setState(() => _calibrationStatus = '确认加载失败');
+        setState(() {
+          if (_calibrationEventRevision == eventRevision) {
+            _calibrationState = previousState;
+            _stepPhase = previousStepPhase;
+            _calibrationComplete = previousComplete;
+            _dynamicCalibrationAccepted = previousDynamicAccepted;
+          }
+          _calibrationStatus = '确认加载失败。';
+        });
       }
     } catch (error) {
-      if (mounted && widget.mapping.scaleId == scaleId) {
-        setState(() => _calibrationStatus = '$error');
+      if (_isCurrentCalibration(generation, scaleId, subsystemId)) {
+        setState(() {
+          if (_calibrationEventRevision == eventRevision) {
+            _calibrationState = previousState;
+            _stepPhase = previousStepPhase;
+            _calibrationComplete = previousComplete;
+            _dynamicCalibrationAccepted = previousDynamicAccepted;
+          }
+          _calibrationStatus = '$error';
+        });
       }
     } finally {
-      if (mounted && widget.mapping.scaleId == scaleId) {
+      if (_isCurrentCalibration(generation, scaleId, subsystemId)) {
         setState(() => _calibrationBusy = false);
       }
     }
   }
 
   Future<void> _acceptDynamicCalibration(bool accept) async {
-    if (_calibrationBusy || _loading) return;
+    if (_calibrationBusy || _loading || _calibrationState != 3) return;
     final scaleId = widget.mapping.scaleId;
+    final subsystemId = widget.mapping.subsystemId;
+    final generation = _calibrationGeneration;
     setState(() => _calibrationBusy = true);
     try {
       final ok = await _platform.acceptDynamicCalibration(scaleId, accept);
-      if (!mounted || widget.mapping.scaleId != scaleId) return;
+      if (!_isCurrentCalibration(generation, scaleId, subsystemId)) return;
       if (!ok) {
-        setState(() => _calibrationStatus = '动态校准确认失败');
+        setState(() => _calibrationStatus = '动态校正确认失败。');
+      } else if (!accept) {
+        setState(() {
+          _activeCalibration = _PanelCalibrationType.none;
+          _calibrationComplete = false;
+          _calibrationState = 0;
+          _calibrationStatus = '已拒绝动态校正结果。';
+        });
+      } else {
+        setState(() {
+          _dynamicCalibrationAccepted = true;
+          _calibrationStatus = '已接受动态校正结果，请保存完成。';
+        });
       }
     } catch (error) {
-      if (mounted && widget.mapping.scaleId == scaleId) {
+      if (_isCurrentCalibration(generation, scaleId, subsystemId)) {
         setState(() => _calibrationStatus = '$error');
       }
     } finally {
-      if (mounted && widget.mapping.scaleId == scaleId) {
+      if (_isCurrentCalibration(generation, scaleId, subsystemId)) {
         setState(() => _calibrationBusy = false);
+      }
+    }
+  }
+
+  Future<void> _abortCalibration() async {
+    if (_calibrationBusy || _loading ||
+        _activeCalibration == _PanelCalibrationType.none) return;
+    final scaleId = widget.mapping.scaleId;
+    final subsystemId = widget.mapping.subsystemId;
+    final generation = _calibrationGeneration;
+    setState(() => _calibrationBusy = true);
+    try {
+      final ok = await _platform.triggerAbortCalibration(scaleId);
+      if (!_isCurrentCalibration(generation, scaleId, subsystemId)) return;
+      if (ok) {
+        setState(() {
+          _activeCalibration = _PanelCalibrationType.none;
+          _calibrationState = 0;
+          _calibrationComplete = false;
+          _dynamicCalibrationAccepted = false;
+          _stepPhase = _PanelStepPhase.idle;
+          _calibrationStatus = AppLocalizations.of(context)!.calAbortedMsg;
+        });
+      } else {
+        setState(() => _calibrationStatus = '中止校正失败。');
+      }
+    } catch (error) {
+      if (_isCurrentCalibration(generation, scaleId, subsystemId)) {
+        setState(() => _calibrationStatus = '$error');
+      }
+    } finally {
+      if (_isCurrentCalibration(generation, scaleId, subsystemId)) {
+        setState(() => _calibrationBusy = false);
+      }
+    }
+  }
+
+  Future<void> _confirmStepRemoval() async {
+    if (_calibrationBusy ||
+        _activeCalibration != _PanelCalibrationType.step ||
+        _stepPhase != _PanelStepPhase.removeWaiting) return;
+    final scaleId = widget.mapping.scaleId;
+    final subsystemId = widget.mapping.subsystemId;
+    final generation = _calibrationGeneration;
+    setState(() => _calibrationBusy = true);
+    try {
+      final ok = await _platform.triggerStepRemoveConfirm(scaleId);
+      if (!_isCurrentCalibration(generation, scaleId, subsystemId)) return;
+      setState(() {
+        _calibrationBusy = false;
+        if (ok) {
+          _stepPhase = _PanelStepPhase.substituteWaiting;
+          _calibrationStatus = '已确认移除砝码，请加入替代物料后确认。';
+        } else {
+          _calibrationStatus = '移除砝码确认失败。';
+        }
+      });
+    } catch (error) {
+      if (_isCurrentCalibration(generation, scaleId, subsystemId)) {
+        setState(() {
+          _calibrationBusy = false;
+          _calibrationStatus = '$error';
+        });
+      }
+    }
+  }
+
+  Future<void> _confirmStepSubstitute() async {
+    final weight = double.tryParse(_stepLoad.text);
+    if (weight == null || !weight.isFinite || weight <= 0) {
+      setState(() => _calibrationStatus =
+          '请输入大于零的替代物料重量（$_calibrationUnit）。');
+      return;
+    }
+    if (_calibrationBusy ||
+        _activeCalibration != _PanelCalibrationType.step ||
+        _stepPhase != _PanelStepPhase.substituteWaiting) return;
+    final scaleId = widget.mapping.scaleId;
+    final subsystemId = widget.mapping.subsystemId;
+    final generation = _calibrationGeneration;
+    setState(() => _calibrationBusy = true);
+    try {
+      final ok =
+          await _platform.triggerStepSubstituteConfirm(scaleId, weight);
+      if (!_isCurrentCalibration(generation, scaleId, subsystemId)) return;
+      setState(() {
+        _calibrationBusy = false;
+        if (ok) {
+          _stepPhase = _PanelStepPhase.nextLoad;
+          _calibrationStatus = '替代物料已确认，请继续加码并开始下一点。';
+        } else {
+          _calibrationStatus = '替代物料确认失败。';
+        }
+      });
+    } catch (error) {
+      if (_isCurrentCalibration(generation, scaleId, subsystemId)) {
+        setState(() {
+          _calibrationBusy = false;
+          _calibrationStatus = '$error';
+        });
       }
     }
   }
@@ -788,7 +1151,13 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
 
   Future<bool> _save() async {
     final l = AppLocalizations.of(context)!;
-    if (_loading || _saving || _error != null) return false;
+    if (_loading ||
+        _saving ||
+        _error != null ||
+        _calibrationBusy ||
+        _activeCalibration != _PanelCalibrationType.none) {
+      return false;
+    }
     setState(() => _saving = true);
     final id = widget.mapping.subsystemId;
     final scaleId = widget.mapping.scaleId;
@@ -1382,7 +1751,14 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
                   color: Color(0xFF91ABBA), size: 18),
             ),
           TextButton.icon(
-            onPressed: _saving || _loading || _error != null ? null : _save,
+              key: const Key('panel-save'),
+              onPressed: _saving ||
+                    _loading ||
+                    _error != null ||
+                    _calibrationBusy ||
+                    _activeCalibration != _PanelCalibrationType.none
+                ? null
+                : _save,
             icon: _saving
                 ? const SizedBox(
                     width: 14,
@@ -1753,20 +2129,84 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
         ),
         _group(
           title: l.calibration,
-          subtitle: '${l.calZero} / ${l.calSpan}',
-          count: 4,
+          subtitle: '物理砝码单位 / 零点 / 多点量程 / 逐步法',
+          count: 8,
           groupKey: 'scale-calibration',
           initiallyExpanded: false,
           children: [
             _paramRow(
-              label: '实时重量',
-              control: _readonly(_liveWeight.toStringAsFixed(2)),
+              label: '砝码标定单位',
+              control: DropdownButtonFormField<int>(
+                key: const Key('calibration-unit'),
+                value: _scale.calibrationUnit
+                    .clamp(0, units.length - 1)
+                    .toInt(),
+                decoration: _deco(),
+                items: [
+                  for (var i = 0; i < units.length; i++)
+                    DropdownMenuItem(value: i, child: Text(units[i])),
+                ],
+                onChanged: _activeCalibration != _PanelCalibrationType.none
+                    ? null
+                    : (value) {
+                        if (value != null) {
+                          setState(() => _scale = _scale.copyWith(
+                                calibrationUnit: value,
+                              ));
+                        }
+                      },
+              ),
               showScope: false,
             ),
             _paramRow(
-              label: l.calSpan,
+              label:
+                  '实时毛重  ${_isWeightStable ? '稳定' : '未稳定'}',
+              control: _readonly(
+                '${_convertWeight(_liveWeight, _liveWeightUnit, _scale.calibrationUnit).toStringAsFixed(2)} $_calibrationUnit',
+              ),
+              showScope: false,
+            ),
+            _paramRow(
+              label: '量程线性模式',
+              control: DropdownButtonFormField<int>(
+                key: const Key('calibration-linear-mode'),
+                value: _linearMode,
+                decoration: _deco(),
+                items: [
+                  DropdownMenuItem(value: 0, child: Text(l.linearDisabled)),
+                  DropdownMenuItem(value: 1, child: Text(l.linear3Point)),
+                  DropdownMenuItem(value: 2, child: Text(l.linear4Point)),
+                  DropdownMenuItem(value: 3, child: Text(l.linear5Point)),
+                ],
+                onChanged: _activeCalibration != _PanelCalibrationType.none
+                    ? null
+                    : (value) {
+                        if (value != null) setState(() => _linearMode = value);
+                      },
+              ),
+              showScope: false,
+            ),
+            for (var i = 0; i <= _linearMode; i++)
+              _paramRow(
+                label: '第 ${i + 1} 点砝码重量（$_calibrationUnit）',
+                control: TextFormField(
+                  key: Key('calibration-span-load-${i + 1}'),
+                  controller: _spanLoads[i],
+                  readOnly: _activeCalibration != _PanelCalibrationType.none,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  style: const TextStyle(color: Color(0xFFEFFAFF), fontSize: 13),
+                  decoration: _deco(),
+                ),
+                showScope: false,
+              ),
+            _paramRow(
+              label: '逐步法砝码/替代物料重量（$_calibrationUnit）',
               control: TextFormField(
-                controller: _spanLoad,
+                key: const Key('calibration-step-load'),
+                controller: _stepLoad,
+                readOnly: _activeCalibration != _PanelCalibrationType.none &&
+                    _activeCalibration != _PanelCalibrationType.step,
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
                 style: const TextStyle(color: Color(0xFFEFFAFF), fontSize: 13),
@@ -1786,57 +2226,104 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
               spacing: 8,
               runSpacing: 8,
               children: [
-                OutlinedButton(
-                  onPressed: _calibrationBusy
-                      ? null
-                      : () => _runCalibration(span: false),
-                  child: Text(l.calZero),
-                ),
-                OutlinedButton(
-                  onPressed: _calibrationBusy
-                      ? null
-                      : () => _runCalibration(span: true),
-                  child: Text(l.calSpan),
-                ),
-                OutlinedButton(
-                  onPressed: _calibrationBusy ? null : _addCalibrationLoad,
-                  child: const Text('确认加载'),
-                ),
-                OutlinedButton(
-                  onPressed: _calibrationBusy
-                      ? null
-                      : () async {
-                          try {
-                            final ok = await _platform
-                                .triggerAbortCalibration(widget.mapping.scaleId);
-                            if (mounted) {
-                              setState(() => _calibrationStatus =
-                                  ok ? l.calAbortedMsg : l.calFailedMsg(''));
-                            }
-                          } catch (error) {
-                            if (mounted) {
-                              setState(() => _calibrationStatus = '$error');
-                            }
-                          }
-                        },
-                  child: Text(l.cancel),
-                ),
-                OutlinedButton(
-                  onPressed: _calibrationBusy
-                      ? null
-                      : () => _acceptDynamicCalibration(true),
-                  child: const Text('接受动态校准'),
-                ),
-                OutlinedButton(
-                  onPressed: _calibrationBusy
-                      ? null
-                      : () => _acceptDynamicCalibration(false),
-                  child: const Text('拒绝动态校准'),
-                ),
-                FilledButton(
-                  onPressed: _calibrationBusy ? null : _saveCalibration,
-                  child: Text(l.save),
-                ),
+                if (_activeCalibration == _PanelCalibrationType.none) ...[
+                  OutlinedButton(
+                    key: const Key('calibration-start-zero'),
+                    onPressed: _calibrationBusy
+                        ? null
+                        : () => _runCalibration(
+                              type: _PanelCalibrationType.zero,
+                            ),
+                    child: Text(l.calZero),
+                  ),
+                  OutlinedButton(
+                    key: const Key('calibration-start-span'),
+                    onPressed: _calibrationBusy
+                        ? null
+                        : () => _runCalibration(
+                              type: _PanelCalibrationType.span,
+                            ),
+                    child: Text(l.calSpan),
+                  ),
+                  OutlinedButton(
+                    key: const Key('calibration-start-step'),
+                    onPressed: _calibrationBusy
+                        ? null
+                        : () => _runCalibration(
+                              type: _PanelCalibrationType.step,
+                            ),
+                    child: const Text('开始逐步法'),
+                  ),
+                ],
+                if (_activeCalibration == _PanelCalibrationType.span &&
+                        _calibrationState == 6 &&
+                        _completedSpanSteps < _linearMode + 1 ||
+                    _activeCalibration == _PanelCalibrationType.step &&
+                        _stepPhase == _PanelStepPhase.nextLoad)
+                  OutlinedButton(
+                    key: const Key('calibration-add-load'),
+                    onPressed: _calibrationBusy ? null : _addCalibrationLoad,
+                    child: Text(_activeCalibration == _PanelCalibrationType.step
+                        ? '继续加码并开始下一点'
+                        : '确认加载下一点'),
+                  ),
+                if (_activeCalibration == _PanelCalibrationType.step &&
+                    _stepPhase == _PanelStepPhase.weightLoaded &&
+                    _calibrationState == 2)
+                  OutlinedButton(
+                    key: const Key('calibration-prepare-remove'),
+                    onPressed: () => setState(() {
+                      _stepPhase = _PanelStepPhase.removeWaiting;
+                      _calibrationComplete = false;
+                      _calibrationStatus = '请移除砝码，然后确认移除。';
+                    }),
+                    child: const Text('移除砝码'),
+                  ),
+                if (_activeCalibration == _PanelCalibrationType.step &&
+                    _stepPhase == _PanelStepPhase.removeWaiting)
+                  OutlinedButton(
+                    key: const Key('calibration-remove-confirm'),
+                    onPressed: _calibrationBusy ? null : _confirmStepRemoval,
+                    child: const Text('确认已移除砝码'),
+                  ),
+                if (_activeCalibration == _PanelCalibrationType.step &&
+                    _stepPhase == _PanelStepPhase.substituteWaiting)
+                  OutlinedButton(
+                    key: const Key('calibration-substitute-confirm'),
+                    onPressed:
+                        _calibrationBusy ? null : _confirmStepSubstitute,
+                    child: const Text('确认替代物料'),
+                  ),
+                if (_calibrationState == 3 &&
+                    _activeCalibration != _PanelCalibrationType.none) ...[
+                  OutlinedButton(
+                    onPressed: _calibrationBusy
+                        ? null
+                        : () => _acceptDynamicCalibration(true),
+                    child: const Text('接受动态校正'),
+                  ),
+                  OutlinedButton(
+                    onPressed: _calibrationBusy
+                        ? null
+                        : () => _acceptDynamicCalibration(false),
+                    child: const Text('拒绝动态校正'),
+                  ),
+                ],
+                if (_calibrationComplete &&
+                    (_calibrationState == 2 ||
+                        _calibrationState == 3 &&
+                            _dynamicCalibrationAccepted))
+                  FilledButton(
+                    key: const Key('calibration-save'),
+                    onPressed: _calibrationBusy ? null : _saveCalibration,
+                    child: Text(l.save),
+                  ),
+                if (_activeCalibration != _PanelCalibrationType.none)
+                  OutlinedButton(
+                    key: const Key('calibration-abort'),
+                    onPressed: _calibrationBusy ? null : _abortCalibration,
+                    child: Text(l.cancel),
+                  ),
               ],
             ),
           ],
