@@ -20,6 +20,136 @@ void main() {
     await platform.shutdown();
   });
 
+  testWidgets('search expands with focus and clearing or closing restores rows',
+      (tester) async {
+    final appState = AppState();
+    await tester.pumpWidget(_testApp(
+      appState,
+      _RouteObserver(),
+      const SubsystemMappingInfo(
+        subsystemId: 1,
+        scaleId: 1,
+        description: '1# 失重秤',
+        appType: 0,
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 400));
+
+    final search = find.byKey(const Key('config-search'));
+    final toggle = find.byKey(const Key('config-search-toggle'));
+    expect(search, findsNothing);
+    expect(find.byTooltip('搜索参数'), findsOneWidget);
+    await tester.tap(find.text('称重'));
+    await tester.pump();
+    final capacity = find.byType(TextFormField).first;
+    await tester.enterText(capacity, '123.45');
+    await tester.pump();
+    final editable = tester.widget<EditableText>(
+      find.descendant(of: capacity, matching: find.byType(EditableText)),
+    );
+    final controller = editable.controller;
+    final content = find.byKey(const ValueKey('1-0'));
+    final collapsedHeight = tester.getSize(content).height;
+
+    await tester.tap(toggle);
+    await tester.pump();
+    await tester.pump();
+    expect(search, findsOneWidget);
+    expect(tester.widget<TextField>(search).focusNode!.hasFocus, isTrue);
+    expect(tester.getSize(content).height, lessThan(collapsedHeight));
+
+    await tester.enterText(search, '自动零');
+    await tester.pump();
+    expect(find.text('量程'), findsNothing);
+    expect(find.text('自动零跟踪'), findsOneWidget);
+    await tester.tap(find.byTooltip('清除搜索'));
+    await tester.pump();
+    expect(find.text('量程'), findsOneWidget);
+    expect(tester.widget<TextField>(search).controller!.text, isEmpty);
+    expect(controller.text, '123.45');
+
+    // Preserve even an incomplete numeric edit while its row is filtered out.
+    await tester.enterText(capacity, '-');
+    await tester.enterText(search, '不存在的参数');
+    await tester.pump();
+    expect(find.text('量程'), findsNothing);
+    await tester.tap(toggle);
+    await tester.pump();
+    expect(search, findsNothing);
+    expect(find.text('量程'), findsOneWidget);
+    expect(controller.text, '-');
+    expect(tester.getSize(content).height, collapsedHeight);
+    await tester.enterText(capacity, '123.45');
+    await tester.tap(find.byKey(const Key('panel-save')));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect((await platform.getScaleParams(1)).capacity, 123.45);
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    appState.dispose();
+  });
+
+  testWidgets('category and subsystem switches clear search without hidden filters',
+      (tester) async {
+    final appState = AppState();
+    await tester.pumpWidget(_switchingTestApp(appState, _RouteObserver()));
+    await tester.pump(const Duration(milliseconds: 400));
+    final search = find.byKey(const Key('config-search'));
+    final toggle = find.byKey(const Key('config-search-toggle'));
+
+    await tester.tap(toggle);
+    await tester.pump();
+    await tester.enterText(search, '不存在的参数');
+    await tester.tap(find.text('称重'));
+    await tester.pump();
+    expect(search, findsNothing);
+    expect(find.text('量程'), findsOneWidget);
+    await tester.tap(toggle);
+    await tester.pump();
+    expect(tester.widget<TextField>(search).controller!.text, isEmpty);
+
+    await tester.enterText(search, '不存在的参数');
+    await tester.tap(find.byKey(const Key('switch-subsystem')));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(search, findsNothing);
+    await tester.tap(find.text('称重'));
+    await tester.pump();
+    expect(find.text('量程'), findsOneWidget);
+    await tester.tap(toggle);
+    await tester.pump();
+    expect(tester.widget<TextField>(search).controller!.text, isEmpty);
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    appState.dispose();
+  });
+
+  testWidgets('expanded search fits a narrow panel', (tester) async {
+    final appState = AppState();
+    await tester.pumpWidget(_testApp(
+      appState,
+      _RouteObserver(),
+      const SubsystemMappingInfo(
+        subsystemId: 1,
+        scaleId: 1,
+        description: '1# 失重秤',
+        appType: 0,
+      ),
+      width: 320,
+    ));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.byKey(const Key('config-search-toggle')));
+    await tester.pump();
+    await tester.enterText(
+        find.byKey(const Key('config-search')), 'a very long parameter query');
+    await tester.pump();
+    expect(tester.getSize(find.byKey(const Key('config-search'))).width,
+        lessThan(320));
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    appState.dispose();
+  });
+
   testWidgets('configuration categories edit parameters without pushing routes',
       (tester) async {
     final appState = AppState();
@@ -97,6 +227,8 @@ void main() {
     await tester.tap(find.text('滤波'));
     await tester.pump();
     await tester.tap(find.byKey(const Key('group-nav-filter-notch')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('config-search-toggle')));
     await tester.pump();
     await tester.enterText(find.byKey(const Key('config-search')), '频率');
     await tester.pump();
@@ -381,8 +513,9 @@ void main() {
 Widget _testApp(
   AppState appState,
   NavigatorObserver observer,
-  SubsystemMappingInfo mapping,
-) {
+  SubsystemMappingInfo mapping, {
+  double width = 620,
+}) {
   return AppStateProvider(
     notifier: appState,
     onLocaleChange: (_) {},
@@ -394,7 +527,7 @@ Widget _testApp(
       home: Scaffold(
         body: Center(
           child: SizedBox(
-            width: 620,
+            width: width,
             height: 560,
             child: HomeSubsystemConfigPanel(mapping: mapping),
           ),

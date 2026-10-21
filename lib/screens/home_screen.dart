@@ -28,8 +28,6 @@ class _HomeScreenState extends State<HomeScreen>
   late final AnimationController _selectionPulse;
   bool _batchMode = false;
   bool _batchPanelOpen = false;
-  bool _showBatchHint = false;
-  Timer? _batchHintTimer;
   final Set<int> _batchSelectedIds = <int>{};
 
   @override
@@ -55,7 +53,6 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void dispose() {
     _statusTimer?.cancel();
-    _batchHintTimer?.cancel();
     _selectionPulse.dispose();
     super.dispose();
   }
@@ -268,28 +265,14 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  void _scheduleBatchHint() {
-    _batchHintTimer?.cancel();
-    _showBatchHint = false;
-
-    // 稍晚于右侧面板的 260ms 滑入动画。
-    _batchHintTimer = Timer(const Duration(milliseconds: 340), () {
-      if (!mounted || _batchMode || _selectedSubsystemId == null) return;
-      setState(() => _showBatchHint = true);
-    });
-  }
-
-  void _hideBatchHint() {
-    _batchHintTimer?.cancel();
-    if (mounted) setState(() => _showBatchHint = false);
-  }
-
   void _toggleBatchMode() {
-    _batchHintTimer?.cancel();
+    if (!_batchMode && _selectedSubsystemId != null) {
+      _switchSingleToBatch();
+      return;
+    }
     setState(() {
       _batchMode = !_batchMode;
       _batchPanelOpen = false;
-      _showBatchHint = false;
       _selectedSubsystemId = null;
       _batchSelectedIds.clear();
     });
@@ -308,14 +291,10 @@ class _HomeScreenState extends State<HomeScreen>
       final nextId =
           _selectedSubsystemId == sub.subsystemId ? null : sub.subsystemId;
 
-      _batchHintTimer?.cancel();
       if (nextId != null) state.setActiveSubsystem(nextId);
       setState(() {
         _selectedSubsystemId = nextId;
-        _showBatchHint = false;
       });
-
-      if (nextId != null) _scheduleBatchHint();
     }
     _syncSelectionPulse();
   }
@@ -324,11 +303,9 @@ class _HomeScreenState extends State<HomeScreen>
     final id = _selectedSubsystemId;
     if (id == null) return;
 
-    _batchHintTimer?.cancel();
     setState(() {
       _batchMode = true;
       _batchPanelOpen = false; // 先选设备，不弹右侧批量面板
-      _showBatchHint = false;
       _selectedSubsystemId = null;
       _batchSelectedIds
         ..clear()
@@ -338,13 +315,11 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _closeConfigPanel() {
-    _batchHintTimer?.cancel();
     setState(() {
       if (_batchMode) {
         _batchPanelOpen = false; // 保留批量已选设备
       } else {
         _selectedSubsystemId = null;
-        _showBatchHint = false;
       }
     });
     _syncSelectionPulse();
@@ -455,162 +430,64 @@ class _HomeScreenState extends State<HomeScreen>
           child: LayoutBuilder(
             builder: (context, constraints) {
               final availableWidth = constraints.maxWidth;
-              final panelWidth = math.min(620.0, availableWidth * 0.56);
+              final compact = availableWidth < 760;
+              final panelWidth = compact
+                  ? math.max(0.0, availableWidth - 24)
+                  : math.min(620.0, availableWidth * 0.56);
 
-              return Stack(
-                fit: StackFit.expand,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            const Spacer(),
-                            OutlinedButton.icon(
-                              onPressed: _toggleBatchMode,
-                              icon: Icon(
-                                _batchMode
-                                    ? Icons.close
-                                    : Icons.library_add_check_outlined,
-                                size: 18,
+              return Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: TweenAnimationBuilder<double>(
+                        tween: Tween<double>(
+                            begin: 0, end: panelOpen ? 1 : 0),
+                        duration: const Duration(milliseconds: 480),
+                        curve: Curves.easeOutCubic,
+                        builder: (context, progress, _) {
+                          final visibleWidth = panelWidth * progress;
+                          return Row(
+                            children: [
+                              // 宽屏保留可交互的秤；窄屏先关闭面板再选设备。
+                              Expanded(
+                                child: compact && progress > 0
+                                    ? const SizedBox.shrink()
+                                    : _scaleCards(state, subs, l),
                               ),
-                              label: Text(_batchMode ? '退出批量配置' : '批量配置'),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Expanded(
-                          child: TweenAnimationBuilder<double>(
-                            tween:
-                                Tween<double>(begin: 0, end: panelOpen ? 1 : 0),
-                            duration: const Duration(milliseconds: 480),
-                            curve: Curves.easeOutCubic,
-                            builder: (context, progress, _) {
-                              final visibleWidth = panelWidth * progress;
-                              return Row(
-                                children: [
-                                  // 宽度随面板进入而收窄；仍可滚动、点击秤。
-                                  Expanded(child: _scaleCards(state, subs, l)),
-                                  SizedBox(width: 12 * progress),
-                                  SizedBox(
-                                    width: visibleWidth,
-                                    child: ClipRect(
-                                      child: OverflowBox(
-                                        alignment: Alignment.centerRight,
-                                        minWidth: panelWidth,
-                                        maxWidth: panelWidth,
-                                        child: SizedBox(
-                                          width: panelWidth,
-                                          child: IgnorePointer(
-                                            ignoring: !panelOpen,
-                                            child: _sideConfigPanel(
-                                              state: state,
-                                              singleSelection: singleSelection,
-                                              batchSelection: batchSelection,
-                                            ),
-                                          ),
+                              SizedBox(width: compact ? 0 : 12 * progress),
+                              SizedBox(
+                                width: visibleWidth,
+                                child: ClipRect(
+                                  child: OverflowBox(
+                                    alignment: Alignment.centerRight,
+                                    minWidth: panelWidth,
+                                    maxWidth: panelWidth,
+                                    child: SizedBox(
+                                      width: panelWidth,
+                                      child: IgnorePointer(
+                                        ignoring: !panelOpen,
+                                        child: _sideConfigPanel(
+                                          state: state,
+                                          singleSelection: singleSelection,
+                                          batchSelection: batchSelection,
                                         ),
                                       ),
                                     ),
                                   ),
-                                ],
-                              );
-                            },
-                          ),
-                        ),
-                        if (_batchMode && !panelOpen) ...[
-                          const SizedBox(height: 12),
-                          _batchSelectionBar(batchSelection),
-                        ],
-                      ],
-                    ),
-                  ),
-                  if (panelOpen)
-                    Positioned(
-                      left: 12,
-                      right: 12,
-                      bottom: 16,
-                      child: Center(
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 520),
-                          child: IgnorePointer(
-                            ignoring: !_showBatchHint,
-                            child: AnimatedSlide(
-                              offset: _showBatchHint
-                                  ? Offset.zero
-                                  : const Offset(0, 1.5),
-                              duration: const Duration(milliseconds: 320),
-                              curve: Curves.easeOutCubic,
-                              child: AnimatedOpacity(
-                                opacity: _showBatchHint ? 1 : 0,
-                                duration: const Duration(milliseconds: 250),
-                                child: Material(
-                                  elevation: 16,
-                                  shadowColor: const Color(0xAA000914),
-                                  color: const Color(0xFF102B3B),
-                                  borderRadius: BorderRadius.circular(16),
-                                  child: Container(
-                                    padding: const EdgeInsets.fromLTRB(
-                                        16, 10, 8, 10),
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(16),
-                                      border: Border.all(
-                                          color: const Color(0xFF62E3E5)),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        const Icon(
-                                          Icons.library_add_check_outlined,
-                                          color: Color(0xFF62E3E5),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        const Expanded(
-                                          child: Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                '想同时配置多台秤？',
-                                                style: TextStyle(
-                                                  color: Color(0xFFEFFAFF),
-                                                  fontWeight: FontWeight.w700,
-                                                ),
-                                              ),
-                                              Text(
-                                                '切换前请先保存当前修改',
-                                                style: TextStyle(
-                                                  color: Color(0xFF91ABBA),
-                                                  fontSize: 11,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        IconButton(
-                                          tooltip: '关闭提示',
-                                          onPressed: _hideBatchHint,
-                                          icon: const Icon(
-                                            Icons.close,
-                                            color: Color(0xFFB8CDD7),
-                                          ),
-                                        ),
-                                        TextButton(
-                                          onPressed: _switchSingleToBatch,
-                                          child: const Text('切换到批量'),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
                                 ),
                               ),
-                            ),
-                          ),
-                        ),
+                            ],
+                          );
+                        },
                       ),
                     ),
-                ],
+                    if (_batchMode && !panelOpen) ...[
+                      const SizedBox(height: 12),
+                      _batchSelectionBar(batchSelection),
+                    ],
+                  ],
+                ),
               );
             },
           ),
@@ -736,6 +613,29 @@ class _HomeScreenState extends State<HomeScreen>
             size: 29,
           ),
           const SizedBox(height: 20),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: IconButton(
+              key: const Key('batch-mode-toggle'),
+              tooltip: _batchMode
+                  ? '退出批量配置'
+                  : '批量配置（切换前请先保存当前修改）',
+              onPressed: _toggleBatchMode,
+              style: IconButton.styleFrom(
+                minimumSize: const Size(48, 48),
+                backgroundColor: _batchMode
+                    ? const Color(0xFF1F728A)
+                    : const Color(0xFF153748),
+                foregroundColor: const Color(0xFF62E3E5),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(9),
+                ),
+              ),
+              icon: Icon(_batchMode
+                  ? Icons.close
+                  : Icons.library_add_check_outlined),
+            ),
+          ),
           _railButton(Icons.language, () {
             final next = Localizations.localeOf(context).languageCode == 'zh'
                 ? const Locale('en')

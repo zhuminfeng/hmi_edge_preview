@@ -52,6 +52,9 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
   bool _saving = false;
   String? _error;
   String _searchQuery = '';
+  bool _searchExpanded = false;
+  final _searchController = TextEditingController();
+  final _searchFocus = FocusNode();
 
   late TextEditingController _name;
   late int _appType;
@@ -191,6 +194,7 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
       _enabled = widget.mapping.enabled;
       _saving = false;
       _section = 0;
+      _resetSearch();
       _siloSequenceSaving = false;
       _collapsedGroups.clear();
       _collapsedGroups.add('recipe-library');
@@ -203,6 +207,8 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
 
   @override
   void dispose() {
+    _searchController.dispose();
+    _searchFocus.dispose();
     _name.dispose();
     for (final controller in _spanLoads) {
       controller.dispose();
@@ -331,6 +337,7 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
       _siloEditMode = false;
       _siloSequenceSaving = false;
       _section = 0;
+      _resetSearch();
     });
     await Future.wait([
       _load(),
@@ -1337,7 +1344,10 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
       }
       await _load();
       if (!mounted) return;
-      setState(() => _section = 3);
+      setState(() {
+        _section = 3;
+        _resetSearch();
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('已加载配方「$name」')),
       );
@@ -1690,7 +1700,7 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
       child: Column(
         children: [
           _buildHeader(l, sections[_section]),
-          _buildSearchBar(),
+          if (_searchExpanded) _buildSearchBar(),
           _buildBasicInfoBar(l),
           _buildTabBar(sections),
           _buildGroupNavigation(l),
@@ -1743,6 +1753,29 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
               ),
             ),
           ),
+          IconButton(
+            key: const Key('config-search-toggle'),
+            tooltip: _searchExpanded ? '收起搜索（清除筛选）' : '搜索参数',
+            onPressed: () {
+              setState(() {
+                if (_searchExpanded) {
+                  _resetSearch();
+                } else {
+                  _searchExpanded = true;
+                }
+              });
+              if (_searchExpanded) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted && _searchExpanded) _searchFocus.requestFocus();
+                });
+              }
+            },
+            icon: Icon(
+              _searchExpanded ? Icons.search_off : Icons.search,
+              color: const Color(0xFF62E3E5),
+              size: 20,
+            ),
+          ),
           if (widget.onOpenDashboard != null)
             IconButton(
               tooltip: '打开看板',
@@ -1787,11 +1820,22 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
       padding: const EdgeInsets.fromLTRB(14, 4, 14, 10),
       child: TextField(
         key: const Key('config-search'),
+        controller: _searchController,
+        focusNode: _searchFocus,
         style: const TextStyle(color: Color(0xFFEFFAFF)),
         decoration: InputDecoration(
           prefixIcon:
               const Icon(Icons.search, color: Color(0xFF62E3E5), size: 18),
           hintText: '搜索参数',
+          suffixIcon: IconButton(
+            tooltip: '清除搜索',
+            onPressed: () => setState(() {
+              _searchController.clear();
+              _searchQuery = '';
+              _searchFocus.requestFocus();
+            }),
+            icon: const Icon(Icons.clear, color: Color(0xFF91ABBA), size: 18),
+          ),
           hintStyle: const TextStyle(color: Color(0xFF91ABBA)),
           isDense: true,
           filled: true,
@@ -1803,6 +1847,13 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
         onChanged: (value) => setState(() => _searchQuery = value.trim()),
       ),
     );
+  }
+
+  void _resetSearch() {
+    _searchFocus.unfocus();
+    _searchController.clear();
+    _searchQuery = '';
+    _searchExpanded = false;
   }
 
   // 顶部当前配方栏（对齐 SVG 的配方栏：当前配方 + 另存为 + 新建）
@@ -1900,6 +1951,7 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
                       child: InkWell(
                         onTap: () => setState(() {
                           _section = i;
+                          _resetSearch();
                           final groups =
                               _groupOptions(AppLocalizations.of(context)!, i);
                           _activeGroupKey = groups.isEmpty
@@ -4585,30 +4637,32 @@ class _HomeSubsystemConfigPanelState extends State<HomeSubsystemConfigPanel> {
     required Widget control,
     bool showScope = true,
   }) {
-    if (!_matches(label)) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 96,
-            child: Text(
-              label,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Color(0xFFC8E8DE),
-                fontSize: 12,
+    return Offstage(
+      offstage: !_matches(label),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 96,
+              child: Text(
+                label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xFFC8E8DE),
+                  fontSize: 12,
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 6),
-          Expanded(child: control),
-          if (showScope) ...[
             const SizedBox(width: 6),
-            const _ScopeBadge(),
+            Expanded(child: control),
+            if (showScope) ...[
+              const SizedBox(width: 6),
+              const _ScopeBadge(),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
