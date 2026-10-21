@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:weighing_system_elinux/weighing_system_elinux.dart';
@@ -166,6 +168,126 @@ void main() {
     expect(observer.pushes, 0);
     appState.dispose();
   });
+
+  testWidgets('span calibration uses its own unit and waits for final result',
+      (tester) async {
+    final originalPlatform = platform;
+    final calibrationPlatform = _CalibrationTestPlatform();
+    WeighingPlatform.instance = calibrationPlatform;
+    await calibrationPlatform.initialize();
+    final appState = AppState();
+    await tester.pumpWidget(_testApp(
+      appState,
+      _RouteObserver(),
+      const SubsystemMappingInfo(
+        subsystemId: 1,
+        scaleId: 1,
+        description: '1# 失重秤',
+        appType: 0,
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('称重'));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('group-nav-scale-calibration')));
+    await tester.pump();
+
+    final unitField = tester.widget<DropdownButtonFormField<int>>(
+      find.byKey(const Key('calibration-unit')),
+    );
+    unitField.onChanged!(2);
+    final linearField = tester.widget<DropdownButtonFormField<int>>(
+      find.byKey(const Key('calibration-linear-mode')),
+    );
+    linearField.onChanged!(1);
+    await tester.pump();
+    expect(find.text('第 1 点砝码重量（lb）'), findsOneWidget);
+    expect(find.text('砝码标定单位'), findsOneWidget);
+
+    await tester.ensureVisible(find.byKey(const Key('calibration-start-span')));
+    await tester.tap(find.byKey(const Key('calibration-start-span')));
+    await tester.pump();
+    expect(calibrationPlatform.spanLinearMode, 1);
+    expect(calibrationPlatform.spanLoads, [1.0, 1.0]);
+    expect(
+      tester.widget<TextButton>(find.byKey(const Key('panel-save'))).onPressed,
+      isNull,
+    );
+    expect(find.byKey(const Key('calibration-save')), findsNothing);
+
+    calibrationPlatform.emitCalibrationState(1, 6);
+    await tester.pump();
+    expect(find.byKey(const Key('calibration-add-load')), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const Key('calibration-add-load')));
+    await tester.tap(find.byKey(const Key('calibration-add-load')));
+    await tester.pump();
+    expect(calibrationPlatform.addLoadCount, 1);
+
+    calibrationPlatform.emitCalibrationState(1, 2);
+    await tester.pump();
+    expect(find.byKey(const Key('calibration-save')), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const Key('calibration-save')));
+    await tester.tap(find.byKey(const Key('calibration-save')));
+    await tester.pump();
+    expect(calibrationPlatform.saveCount, 1);
+    expect(
+      tester.widget<TextButton>(find.byKey(const Key('panel-save'))).onPressed,
+      isNotNull,
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    appState.dispose();
+    await calibrationPlatform.shutdown();
+    WeighingPlatform.instance = originalPlatform;
+  });
+
+  testWidgets('step calibration confirms removal and substitute before adding',
+      (tester) async {
+    final originalPlatform = platform;
+    final calibrationPlatform = _CalibrationTestPlatform();
+    WeighingPlatform.instance = calibrationPlatform;
+    await calibrationPlatform.initialize();
+    final appState = AppState();
+    await tester.pumpWidget(_testApp(
+      appState,
+      _RouteObserver(),
+      const SubsystemMappingInfo(
+        subsystemId: 1,
+        scaleId: 1,
+        description: '1# 失重秤',
+        appType: 0,
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('称重'));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('group-nav-scale-calibration')));
+    await tester.pump();
+
+    await tester.ensureVisible(find.byKey(const Key('calibration-start-step')));
+    await tester.tap(find.byKey(const Key('calibration-start-step')));
+    await tester.pump();
+    expect(calibrationPlatform.stepWeight, 1);
+
+    calibrationPlatform.emitCalibrationState(1, 2);
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('calibration-prepare-remove')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('calibration-remove-confirm')));
+    await tester.pump();
+    expect(calibrationPlatform.removeConfirmCount, 1);
+    await tester.tap(find.byKey(const Key('calibration-substitute-confirm')));
+    await tester.pump();
+    expect(calibrationPlatform.substituteWeight, 1);
+    await tester.tap(find.byKey(const Key('calibration-add-load')));
+    await tester.pump();
+    expect(calibrationPlatform.addLoadCount, 1);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    appState.dispose();
+    await calibrationPlatform.shutdown();
+    WeighingPlatform.instance = originalPlatform;
+  });
 }
 
 Widget _testApp(
@@ -260,5 +382,79 @@ class _RouteObserver extends NavigatorObserver {
   void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
     pushes++;
     super.didPush(route, previousRoute);
+  }
+}
+
+class _CalibrationTestPlatform extends WebPreviewWeighingPlatform {
+  final StreamController<Map<String, dynamic>> _calibrationController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  int? spanLinearMode;
+  List<double>? spanLoads;
+  double? stepWeight;
+  double? substituteWeight;
+  int addLoadCount = 0;
+  int removeConfirmCount = 0;
+  int saveCount = 0;
+
+  @override
+  Stream<Map<String, dynamic>> get calibrationEvents =>
+      _calibrationController.stream;
+
+  void emitCalibrationState(int scaleId, int state) {
+    _calibrationController.add({
+      'scaleId': scaleId,
+      'state': state,
+      'message': '',
+    });
+  }
+
+  @override
+  Future<bool> triggerCalSpan(
+    int scaleId,
+    int linearMode,
+    List<double> testLoads,
+  ) async {
+    spanLinearMode = linearMode;
+    spanLoads = testLoads;
+    return true;
+  }
+
+  @override
+  Future<bool> triggerStepCalibration(int scaleId, double testWeight) async {
+    stepWeight = testWeight;
+    return true;
+  }
+
+  @override
+  Future<bool> triggerCalibrationAddLoad(int scaleId) async {
+    addLoadCount++;
+    return true;
+  }
+
+  @override
+  Future<bool> triggerStepRemoveConfirm(int scaleId) async {
+    removeConfirmCount++;
+    return true;
+  }
+
+  @override
+  Future<bool> triggerStepSubstituteConfirm(
+    int scaleId,
+    double substituteWeight,
+  ) async {
+    this.substituteWeight = substituteWeight;
+    return true;
+  }
+
+  @override
+  Future<bool> triggerSaveCalibration(int scaleId) async {
+    saveCount++;
+    return true;
+  }
+
+  @override
+  Future<void> shutdown() async {
+    await _calibrationController.close();
+    await super.shutdown();
   }
 }
