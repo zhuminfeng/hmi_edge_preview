@@ -440,49 +440,47 @@ class _HomeScreenState extends State<HomeScreen>
                 child: Column(
                   children: [
                     Expanded(
-                      child: compact && panelOpen
-                          ? _sideConfigPanel(
-                              state: state,
-                              singleSelection: singleSelection,
-                              batchSelection: batchSelection,
-                            )
-                          : TweenAnimationBuilder<double>(
-                              tween: Tween<double>(
-                                  begin: 0, end: panelOpen ? 1 : 0),
-                              duration: const Duration(milliseconds: 480),
-                              curve: Curves.easeOutCubic,
-                              builder: (context, progress, _) {
-                                final visibleWidth = panelWidth * progress;
-                                return Row(
-                                  children: [
-                                    // 宽度随面板进入而收窄；仍可滚动、点击秤。
-                                    Expanded(child: _scaleCards(state, subs, l)),
-                                    SizedBox(width: 12 * progress),
-                                    SizedBox(
-                                      width: visibleWidth,
-                                      child: ClipRect(
-                                        child: OverflowBox(
-                                          alignment: Alignment.centerRight,
-                                          minWidth: panelWidth,
-                                          maxWidth: panelWidth,
-                                          child: SizedBox(
-                                            width: panelWidth,
-                                            child: IgnorePointer(
-                                              ignoring: !panelOpen,
-                                              child: _sideConfigPanel(
-                                                state: state,
-                                                singleSelection: singleSelection,
-                                                batchSelection: batchSelection,
-                                              ),
-                                            ),
-                                          ),
+                      child: TweenAnimationBuilder<double>(
+                        tween: Tween<double>(
+                            begin: 0, end: panelOpen ? 1 : 0),
+                        duration: const Duration(milliseconds: 480),
+                        curve: Curves.easeOutCubic,
+                        builder: (context, progress, _) {
+                          final visibleWidth = panelWidth * progress;
+                          return Row(
+                            children: [
+                              // 宽屏保留可交互的秤；窄屏先关闭面板再选设备。
+                              Expanded(
+                                child: compact && progress > 0
+                                    ? const SizedBox.shrink()
+                                    : _scaleCards(state, subs, l),
+                              ),
+                              SizedBox(width: compact ? 0 : 12 * progress),
+                              SizedBox(
+                                width: visibleWidth,
+                                child: ClipRect(
+                                  child: OverflowBox(
+                                    alignment: Alignment.centerRight,
+                                    minWidth: panelWidth,
+                                    maxWidth: panelWidth,
+                                    child: SizedBox(
+                                      width: panelWidth,
+                                      child: IgnorePointer(
+                                        ignoring: !panelOpen,
+                                        child: _sideConfigPanel(
+                                          state: state,
+                                          singleSelection: singleSelection,
+                                          batchSelection: batchSelection,
                                         ),
                                       ),
                                     ),
-                                  ],
-                                );
-                              },
-                            ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
                     ),
                     if (_batchMode && !panelOpen) ...[
                       const SizedBox(height: 12),

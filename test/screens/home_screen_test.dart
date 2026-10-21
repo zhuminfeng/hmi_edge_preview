@@ -59,6 +59,23 @@ void main() {
     expect(entry.height, greaterThanOrEqualTo(48));
     expect(find.byType(OutlinedButton), findsNothing);
     expect(find.text('想同时配置多台秤？'), findsNothing);
+    await tester.tap(find.text('称重'));
+    await tester.pump();
+    await tester.enterText(find.byType(TextFormField).first, '123.45');
+    await tester.pump();
+    final capacity = tester.widget<EditableText>(find.descendant(
+      of: find.byType(TextFormField).first,
+      matching: find.byType(EditableText),
+    ));
+    tester.view.physicalSize = const Size(480, 800);
+    await tester.pump();
+    expect(capacity.controller.text, '123.45');
+    expect(tester.widget<EditableText>(find.descendant(
+      of: find.byType(TextFormField).first,
+      matching: find.byType(EditableText),
+    )).controller, same(capacity.controller));
+    tester.view.physicalSize = const Size(1280, 800);
+    await tester.pump();
     await tester.tap(find.byKey(const Key('config-search-toggle')));
     await tester.pump();
     expect(find.byKey(const Key('config-search')), findsOneWidget);
